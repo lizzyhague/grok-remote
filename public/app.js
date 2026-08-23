@@ -1,9 +1,11 @@
 import { renderMarkdown } from "./markdown.js";
 
 const TOKEN_KEY = "grok-remote-token";
+const SIDEBAR_COLLAPSED_KEY = "grok-remote.sidebar-collapsed";
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_COMMAND_OUTPUT = 100_000;
-const COMMAND_TITLE_LIMIT = 48;
+/** 输入框失焦后稍等再点亮 rewind / always-approve，避免同一下既失焦又点到确认。 */
+const COMPOSER_CONFIRM_UNLOCK_MS = 300;
 
 const elements = {
   loginView: byId("login-view"),
@@ -12,6 +14,7 @@ const elements = {
   tokenInput: byId("token-input"),
   connectButton: byId("connect-button"),
   loginStatus: byId("login-status"),
+  sessionSidebar: byId("session-sidebar"),
   projectSelect: byId("project-select"),
   newSessionButton: byId("new-session-button"),
   sessionSearchInput: byId("session-search-input"),
@@ -52,10 +55,15 @@ const state = {
   sessions: [],
   sessionCursor: null,
   currentSessionId: null,
+  sessionTitle: "",
   lastSeq: 0,
   busy: false,
   taskRunning: false,
   alwaysApprove: false,
+  sidebarCollapsed: stateGet(SIDEBAR_COLLAPSED_KEY) === "1",
+  mobileSidebarOpen: false,
+  composerLocksConfirms: false,
+  composerFocusTimer: null,
   assistantStreams: new Map(),
   commands: new Map(),
   slashMenu: null,
@@ -76,11 +84,9 @@ elements.projectSelect.addEventListener("change", () => {
 elements.newSessionButton.addEventListener("click", () => void startSession());
 elements.sessionSearchInput.addEventListener("input", debounce(() => void loadSessions(), 250));
 elements.loadMoreSessionsButton.addEventListener("click", () => void loadSessions({ append: true }));
-elements.collapseSidebarButton.addEventListener("click", () => {
-  elements.appView.dataset.sidebarCollapsed = "true";
-});
+elements.collapseSidebarButton.addEventListener("click", closeSidebar);
 elements.openSidebarButton.addEventListener("click", openSidebar);
-elements.sidebarBackdrop.addEventListener("click", closeMobileSidebar);
+elements.sidebarBackdrop.addEventListener("click", closeSidebar);
 elements.loadOlderButton.addEventListener("click", () => void loadOlderHistory());
 elements.composer.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -90,6 +96,18 @@ elements.messageInput.addEventListener("input", () => {
   resizeComposer();
   state.slashMenu?.handleInput();
   updateControls();
+});
+elements.messageInput.addEventListener("focus", () => {
+  window.clearTimeout(state.composerFocusTimer);
+  state.composerLocksConfirms = true;
+  updateControls();
+});
+elements.messageInput.addEventListener("blur", () => {
+  window.clearTimeout(state.composerFocusTimer);
+  state.composerFocusTimer = window.setTimeout(() => {
+    state.composerLocksConfirms = false;
+    updateControls();
+  }, COMPOSER_CONFIRM_UNLOCK_MS);
 });
 elements.messageInput.addEventListener("keydown", (event) => {
   if (state.slashMenu?.handleKeydown(event)) return;
@@ -106,6 +124,9 @@ elements.commandMenuButton.addEventListener("click", () => {
 elements.rewindShortcut.addEventListener("click", () => void state.slashMenu?.runShortcut("rewind"));
 elements.sessionInfoShortcut.addEventListener("click", () => void state.slashMenu?.runShortcut("session-info"));
 elements.alwaysApproveShortcut.addEventListener("click", () => void toggleAlwaysApprove());
+
+elements.appView.dataset.sidebarCollapsed = String(state.sidebarCollapsed);
+syncSidebarState();
 
 markReady();
 const saved = stateGet(TOKEN_KEY);
@@ -148,7 +169,7 @@ async function connect(token) {
   socket.addEventListener("message", (event) => handleSocketMessage(String(event.data)));
   socket.addEventListener("close", () => {
     rejectPending(new Error("连接已断开。"));
-    setConnectionStatus("error", "已断开，正在重连");
+    setConnectionStatus("disconnected", "已断开，正在重连");
     scheduleReconnect();
   });
   socket.addEventListener("error", () => {
@@ -256,10 +277,11 @@ async function resumeSession(sessionId) {
 
 function applyOpenedSession(opened) {
   state.currentSessionId = opened.session?.id ?? null;
+  state.sessionTitle = opened.session?.title || "";
   state.lastSeq = opened.lastSeq ?? 0;
   state.alwaysApprove = opened.alwaysApprove === true;
   state.taskRunning = Boolean(opened.activeTaskId);
-  elements.currentSessionTitle.textContent = opened.session?.title || "Grok Remote";
+  updateConversationTitle();
   renderHistory(Array.isArray(opened.tasks) ? opened.tasks : [], opened.hasOlder === true);
   elements.approvalList.replaceChildren();
   for (const approval of opened.pendingApprovals ?? []) addApproval(approval);
@@ -275,30 +297,62 @@ function applyOpenedSession(opened) {
 
 function renderSessionList() {
   elements.sessionList.replaceChildren();
-  for (const session of state.sessions) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "session-item";
-    button.setAttribute("role", "listitem");
-    if (session.id === state.currentSessionId) button.setAttribute("aria-current", "true");
-    const text = document.createElement("div");
-    const title = document.createElement("strong");
-    title.textContent = session.title || "未命名会话";
-    const preview = document.createElement("span");
-    preview.textContent = session.preview || formatDate(session.updatedAt);
-    text.append(title, preview);
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "quiet small danger";
-    remove.textContent = "删除";
-    remove.addEventListener("click", (event) => {
-      event.stopPropagation();
-      void deleteSession(session);
-    });
-    button.append(text, remove);
-    button.addEventListener("click", () => void resumeSession(session.id));
-    elements.sessionList.append(button);
+  if (state.sessions.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "session-list-empty";
+    empty.textContent = elements.sessionSearchInput.value.trim()
+      ? "没有找到匹配的会话。"
+      : "这个项目还没有会话。";
+    elements.sessionList.append(empty);
+    updateControls();
+    return;
   }
+  for (const session of state.sessions) {
+    elements.sessionList.append(createSessionItem(session));
+  }
+  updateControls();
+}
+
+function createSessionItem(session) {
+  const item = document.createElement("article");
+  item.className = "session-item";
+  item.dataset.current = String(session.id === state.currentSessionId);
+  item.dataset.state = session.state || "not_loaded";
+  item.setAttribute("role", "listitem");
+
+  const open = document.createElement("button");
+  open.className = "session-open";
+  open.type = "button";
+  appendSessionText(open, session);
+  open.addEventListener("click", () => {
+    if (session.id === state.currentSessionId) closeMobileSidebar();
+    else void resumeSession(session.id);
+  });
+
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "session-menu-trigger quiet";
+  remove.setAttribute("aria-label", `永久删除 ${session.title || "新会话"}`);
+  remove.textContent = "⋯";
+  remove.addEventListener("click", () => void deleteSession(session));
+  item.append(open, remove);
+  return item;
+}
+
+function appendSessionText(container, session) {
+  const title = document.createElement("span");
+  title.className = "session-item-title";
+  title.textContent = session.title || "新会话";
+  const preview = document.createElement("span");
+  preview.className = "session-item-preview";
+  preview.textContent = session.preview || "暂无内容";
+  const meta = document.createElement("span");
+  meta.className = "session-item-meta";
+  const date = formatDate(session.updatedAt || session.createdAt);
+  meta.textContent = session.state === "active"
+    ? `运行中${date ? ` · ${date}` : ""}`
+    : date;
+  container.append(title, preview, meta);
 }
 
 async function deleteSession(session) {
@@ -313,12 +367,13 @@ async function deleteSession(session) {
 
 function resetCurrentSession() {
   state.currentSessionId = null;
+  state.sessionTitle = "";
   state.lastSeq = 0;
   state.taskRunning = false;
   state.alwaysApprove = false;
   state.assistantStreams.clear();
   state.commands.clear();
-  elements.currentSessionTitle.textContent = "Grok Remote";
+  updateConversationTitle();
   clearTimeline();
   showEmpty("选择以前的会话，或者新建一个会话。");
   elements.approvalList.replaceChildren();
@@ -327,21 +382,23 @@ function resetCurrentSession() {
 
 function renderHistory(tasks, hasOlder) {
   clearTimeline();
+  elements.timeline.append(elements.historyLoader);
   elements.historyLoader.hidden = !hasOlder;
-  if (!tasks.length) {
-    showEmpty("还没有消息。直接输入，或用 / 查看命令。");
-    return;
+  const rendered = renderTasks(tasks);
+  if (rendered === 0 && !hasOlder) {
+    showEmpty("这是一个新会话，可以发送第一条消息了。");
+  } else {
+    scrollToBottom(true);
   }
-  hideEmpty();
-  renderTasks(tasks);
-  scrollToBottom(true);
 }
 
 function renderTasks(tasks) {
+  let rendered = 0;
   for (const task of tasks) {
     for (const item of task.items ?? []) {
       if (item.type === "message") {
         addMessage(item.role, item.text, item.id, false);
+        rendered += 1;
       } else if (item.type === "command") {
         completeCommand({
           id: item.id,
@@ -350,30 +407,50 @@ function renderTasks(tasks) {
           output: item.output,
           outputTruncated: item.outputTruncated,
         });
+        rendered += 1;
       } else if (item.type === "file_change") {
         addFileChange(item);
+        rendered += 1;
       } else if (item.type === "note") {
         addTaskNote(item.text);
+        rendered += 1;
       }
     }
-    if (task.status === "interrupted" && task.error) addTaskNote(task.error);
+    if (task.status === "interrupted" && task.error) {
+      addTaskNote(task.error);
+      rendered += 1;
+    }
   }
+  return rendered;
 }
 
 async function loadOlderHistory() {
-  const data = await request("history.older");
-  const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
-  elements.historyLoader.hidden = data?.hasOlder !== true;
-  const fragment = document.createDocumentFragment();
-  const marker = elements.timeline.firstChild;
-  for (const task of tasks) {
-    for (const item of task.items ?? []) {
-      if (item.type === "message") {
-        fragment.append(createMessageElement(item.role, item.text, item.id, false));
-      }
+  if (!state.currentSessionId || elements.loadOlderButton.disabled) return;
+  const sessionId = state.currentSessionId;
+  const oldHeight = elements.timeline.scrollHeight;
+  const oldTop = elements.timeline.scrollTop;
+  const existingNodes = new Set(elements.timeline.children);
+  elements.loadOlderButton.disabled = true;
+  elements.loadOlderButton.textContent = "加载中……";
+  try {
+    const data = await request("history.older");
+    if (sessionId !== state.currentSessionId) return;
+    renderTasks(Array.isArray(data?.tasks) ? data.tasks : []);
+    const addedNodes = [...elements.timeline.children]
+      .filter((node) => !existingNodes.has(node));
+    let anchor = elements.historyLoader;
+    for (const node of addedNodes) {
+      anchor.after(node);
+      anchor = node;
     }
+    elements.historyLoader.hidden = data?.hasOlder !== true;
+    elements.timeline.scrollTop = oldTop + (elements.timeline.scrollHeight - oldHeight);
+  } catch (error) {
+    showNotice(errorMessage(error));
+  } finally {
+    elements.loadOlderButton.disabled = false;
+    elements.loadOlderButton.textContent = "加载更早";
   }
-  elements.timeline.insertBefore(fragment, marker);
 }
 
 async function sendOrStop() {
@@ -432,15 +509,18 @@ function handleServerEvent(event) {
       break;
     case "session.title":
       if (event.title) {
-        elements.currentSessionTitle.textContent = event.title;
+        state.sessionTitle = event.title;
+        updateConversationTitle();
         const found = state.sessions.find((session) => session.id === state.currentSessionId);
         if (found) found.title = event.title;
         renderSessionList();
       }
       break;
     case "message.user":
+      hideThinking();
       hideEmpty();
       addMessage("user", event.text ?? "", event.itemId, false);
+      if (state.taskRunning) showThinking();
       break;
     case "message.delta":
       hideThinking();
@@ -452,21 +532,25 @@ function handleServerEvent(event) {
     case "command.started":
       hideThinking();
       startCommand(event);
+      showThinking("正在执行命令");
       break;
     case "command.output.delta":
       appendCommandOutput(event.itemId, event.text ?? "");
       break;
     case "command.completed":
       completeCommand(event);
+      if (state.taskRunning) showThinking();
       break;
     case "file_change.completed":
       addFileChange(event);
+      if (state.taskRunning) showThinking();
       break;
     case "approval.requested":
       addApproval(event);
       break;
     case "approval.resolved":
       removeApproval(event.approvalId);
+      if (state.taskRunning) showThinking();
       break;
     case "turn.status":
       if (event.status === "running") {
@@ -511,6 +595,7 @@ function addMessage(role, text, id, buffered) {
     });
   }
   scrollToBottom(false);
+  return element;
 }
 
 function createMessageElement(role, text, id, buffered) {
@@ -518,25 +603,25 @@ function createMessageElement(role, text, id, buffered) {
   article.className = `message ${role}`;
   article.dataset.itemId = id ?? "";
   if (buffered) {
-    const span = document.createElement("div");
+    const span = document.createElement("pre");
     span.className = "message-text";
     span.textContent = text;
     article.append(span);
-  } else if (role === "assistant") {
-    article.append(renderMarkdown(text));
   } else {
-    article.textContent = text;
+    article.append(renderMarkdown(text));
   }
   return article;
 }
 
 function appendAssistantDelta(itemId, delta) {
+  if (!itemId || !delta) return;
   let stream = state.assistantStreams.get(itemId);
   if (!stream) {
     addMessage("assistant", "", itemId, true);
     stream = state.assistantStreams.get(itemId);
   }
   stream.target += delta;
+  stream.element.classList.add("pending");
   scheduleAssistantFrame(stream);
 }
 
@@ -546,8 +631,14 @@ function completeAssistant(itemId, text) {
     addMessage("assistant", "", itemId, true);
     stream = state.assistantStreams.get(itemId);
   }
-  stream.target = text || stream.target;
+  const finalText = text || stream.target;
+  if (!finalText.startsWith(stream.shown)) {
+    stream.shown = "";
+    stream.textElement.textContent = "";
+  }
+  stream.target = finalText;
   stream.completed = true;
+  stream.element.classList.add("pending");
   scheduleAssistantFrame(stream);
 }
 
@@ -559,30 +650,33 @@ function scheduleAssistantFrame(stream) {
 function animateAssistant(stream) {
   stream.frame = null;
   if (stream.markdownRendered) {
-    const stick = isNearBottom();
+    const stickToBottom = isNearBottom();
     stream.shown = stream.target;
     stream.element.replaceChildren(renderMarkdown(stream.target));
-    if (stick) scrollToBottom(false);
+    if (stickToBottom) scrollToBottom(false);
     return;
   }
   const remaining = stream.target.length - stream.shown.length;
   if (remaining <= 0) {
-    if (stream.completed && !stream.markdownRendered) {
-      const stick = isNearBottom();
-      stream.element.replaceChildren(renderMarkdown(stream.target));
-      stream.markdownRendered = true;
-      if (stick) scrollToBottom(false);
+    if (stream.completed) {
+      const stickToBottom = isNearBottom();
+      stream.element.classList.remove("pending");
+      if (!stream.markdownRendered) {
+        stream.element.replaceChildren(renderMarkdown(stream.target));
+        stream.markdownRendered = true;
+        if (stickToBottom) scrollToBottom(false);
+      }
     }
     return;
   }
-  const stick = isNearBottom();
+  const stickToBottom = isNearBottom();
   let amount = Math.min(80, Math.max(1, Math.ceil(remaining / 24)));
   const end = stream.shown.length + amount;
   const lastCode = stream.target.charCodeAt(end - 1);
   if (lastCode >= 0xD800 && lastCode <= 0xDBFF) amount += 1;
   stream.shown = stream.target.slice(0, stream.shown.length + amount);
   stream.textElement.textContent = stream.shown;
-  if (stick) scrollToBottom(false);
+  if (stickToBottom) scrollToBottom(false);
   scheduleAssistantFrame(stream);
 }
 
@@ -592,11 +686,11 @@ function startCommand(event) {
   if (state.commands.has(itemId)) return;
   const details = document.createElement("details");
   details.className = "command";
+  details.dataset.itemId = itemId;
   const summary = document.createElement("summary");
   const output = document.createElement("pre");
   const fullTitle = event.title || "命令";
-  summary.textContent = `${truncateTitle(fullTitle)} · 运行中`;
-  summary.title = fullTitle;
+  summary.textContent = `命令：${fullTitle} · 运行中`;
   output.textContent = "等待输出……";
   details.append(summary, output);
   elements.timeline.append(details);
@@ -631,8 +725,7 @@ function completeCommand(event) {
   if (!command) return;
   if (event.title) command.title = event.title;
   const status = commandStatus(event.status);
-  command.summary.textContent = `${truncateTitle(command.title)} · ${status}`;
-  command.summary.title = command.title;
+  command.summary.textContent = `命令：${command.title} · ${status}`;
   if (typeof event.output === "string") {
     command.output = event.output.length > MAX_COMMAND_OUTPUT
       ? event.output.slice(-MAX_COMMAND_OUTPUT)
@@ -663,16 +756,17 @@ function addTaskNote(text) {
 
 function addApproval(approval) {
   removeApproval(approval.approvalId);
-  const card = document.createElement("div");
+  const card = document.createElement("section");
   card.className = "approval-card";
   card.dataset.approvalId = approval.approvalId;
+  card.dataset.kind = approval.kind || "tool";
   const reason = document.createElement("p");
   reason.textContent = approval.reason || (approval.kind === "user_input"
     ? "Grok 需要你回答一个问题。"
     : "Grok 需要你批准一次操作。");
-  const actions = document.createElement("div");
-  actions.className = "approval-actions";
   if (approval.kind === "user_input" && Array.isArray(approval.options) && approval.options.length) {
+    const actions = document.createElement("div");
+    actions.className = "approval-actions";
     for (const option of approval.options) {
       const button = document.createElement("button");
       button.type = "button";
@@ -680,28 +774,34 @@ function addApproval(approval) {
       button.addEventListener("click", () => void answerApproval(card, approval.approvalId, "approve_once", option.optionId));
       actions.append(button);
     }
+    card.append(reason, actions);
   } else {
+    const decline = document.createElement("button");
+    decline.type = "button";
+    decline.className = "danger";
+    decline.textContent = "拒绝";
+    decline.addEventListener("click", () => void answerApproval(card, approval.approvalId, "decline", null));
     const allow = document.createElement("button");
     allow.type = "button";
     allow.className = "primary";
     allow.textContent = "本次允许";
     allow.addEventListener("click", () => void answerApproval(card, approval.approvalId, "approve_once", null));
-    const decline = document.createElement("button");
-    decline.type = "button";
-    decline.textContent = "拒绝";
-    decline.addEventListener("click", () => void answerApproval(card, approval.approvalId, "decline", null));
-    actions.append(allow, decline);
+    card.append(reason, decline, allow);
   }
-  card.append(reason, actions);
   elements.approvalList.append(card);
 }
 
 async function answerApproval(card, approvalId, decision, optionId) {
-  card.querySelectorAll("button").forEach((button) => {
-    button.disabled = true;
-  });
-  await request("approval.answer", { approvalId, decision, optionId });
-  removeApproval(approvalId);
+  const buttons = card.querySelectorAll("button");
+  buttons.forEach((button) => { button.disabled = true; });
+  try {
+    await request("approval.answer", { approvalId, decision, optionId });
+    removeApproval(approvalId);
+    if (state.taskRunning) showThinking();
+  } catch (error) {
+    buttons.forEach((button) => { button.disabled = false; });
+    showNotice(errorMessage(error));
+  }
 }
 
 function removeApproval(approvalId) {
@@ -753,47 +853,126 @@ async function ensureSlashMenu() {
 function updateControls() {
   const connected = state.socket?.readyState === WebSocket.OPEN;
   const hasSession = Boolean(state.currentSessionId);
-  const canType = connected && hasSession && !state.busy;
-  elements.messageInput.disabled = !canType;
-  elements.commandMenuButton.disabled = !canType;
-  elements.rewindShortcut.disabled = !canType || state.taskRunning;
-  elements.sessionInfoShortcut.disabled = !canType;
-  elements.alwaysApproveShortcut.disabled = !canType;
-  elements.alwaysApproveShortcut.setAttribute("aria-pressed", String(state.alwaysApprove));
+  const hasText = Boolean(elements.messageInput.value.trim());
+  const confirmLocked = state.composerLocksConfirms;
+  elements.projectSelect.disabled = !connected || state.busy;
   elements.newSessionButton.disabled = !connected || !state.projectId || state.busy;
-  elements.taskButton.disabled = !canType && !(connected && hasSession && state.taskRunning);
+  elements.sessionSearchInput.disabled = !connected || !state.projectId || state.busy;
+  elements.loadMoreSessionsButton.disabled = !connected || state.busy;
+  for (const item of elements.sessionList.querySelectorAll(".session-item")) {
+    for (const button of item.querySelectorAll("button")) {
+      button.disabled = state.busy;
+    }
+  }
+  elements.messageInput.disabled = !connected || !hasSession;
+  elements.messageInput.placeholder = !hasSession
+    ? "先选择或新建会话"
+    : state.taskRunning
+    ? "可以先写，当前回复结束后再发送"
+    : state.busy
+    ? "快捷操作执行中，可以继续写"
+    : "在浏览器里写好，再发送给 Grok";
+  elements.commandMenuButton.disabled = !connected || !hasSession || state.taskRunning || state.busy || hasText;
+  elements.rewindShortcut.disabled = !connected || !hasSession || state.taskRunning || state.busy || confirmLocked;
+  elements.rewindShortcut.title = confirmLocked ? "请先点开输入框再回退" : "";
+  elements.sessionInfoShortcut.disabled = !connected || !hasSession || state.busy;
+  elements.alwaysApproveShortcut.disabled = !connected || !hasSession || state.busy || confirmLocked;
+  elements.alwaysApproveShortcut.setAttribute("aria-pressed", String(state.alwaysApprove));
+  elements.alwaysApproveShortcut.title = confirmLocked
+    ? "请先点开输入框再切换权限"
+    : state.alwaysApprove
+    ? "关闭 always-approve，恢复手动审批"
+    : "为当前会话打开 always-approve";
   elements.taskButton.textContent = state.taskRunning ? "停止" : "发送";
-  elements.messageInput.placeholder = hasSession ? "输入消息，或输入 / 查看命令" : "先选择或新建会话";
+  elements.taskButton.classList.toggle("primary", !state.taskRunning);
+  elements.taskButton.classList.toggle("danger", state.taskRunning);
+  elements.taskButton.disabled = state.taskRunning
+    ? !connected || !hasSession
+    : !connected || !hasSession || state.busy || !hasText;
 }
 
 function openSidebar() {
-  elements.appView.dataset.sidebarCollapsed = "false";
-  elements.appView.dataset.mobileSidebarOpen = "true";
+  if (isMobileNavigation()) {
+    state.mobileSidebarOpen = true;
+    elements.appView.dataset.mobileSidebarOpen = "true";
+  } else {
+    state.sidebarCollapsed = false;
+    elements.appView.dataset.sidebarCollapsed = "false";
+    stateSet(SIDEBAR_COLLAPSED_KEY, "0");
+  }
+  syncSidebarState();
+}
+
+function closeSidebar() {
+  if (isMobileNavigation()) {
+    closeMobileSidebar();
+  } else {
+    state.sidebarCollapsed = true;
+    elements.appView.dataset.sidebarCollapsed = "true";
+    stateSet(SIDEBAR_COLLAPSED_KEY, "1");
+  }
+  syncSidebarState();
 }
 
 function closeMobileSidebar() {
+  state.mobileSidebarOpen = false;
   elements.appView.dataset.mobileSidebarOpen = "false";
+  syncSidebarState();
 }
 
+function isMobileNavigation() {
+  return window.matchMedia("(max-width: 800px)").matches;
+}
+
+function updateConversationTitle() {
+  const privateTitle = isMobileNavigation() || state.sidebarCollapsed;
+  elements.currentSessionTitle.textContent = privateTitle
+    ? "Grok Remote"
+    : state.sessionTitle || "Grok Remote";
+  elements.collapseSidebarButton.textContent = isMobileNavigation() ? "关闭" : "收起";
+}
+
+function syncSidebarState() {
+  const sidebarVisible = isMobileNavigation()
+    ? state.mobileSidebarOpen
+    : !state.sidebarCollapsed;
+  elements.sessionSidebar.inert = !sidebarVisible;
+  elements.sessionSidebar.setAttribute("aria-hidden", String(!sidebarVisible));
+  elements.openSidebarButton.setAttribute("aria-expanded", String(sidebarVisible));
+  updateConversationTitle();
+}
+
+window.addEventListener("resize", syncSidebarState);
+
 function clearTimeline() {
-  for (const node of [...elements.timeline.children]) {
-    if (node.id === "history-loader" || node.id === "empty-state" || node.id === "thinking-indicator") continue;
-    node.remove();
+  for (const stream of state.assistantStreams.values()) {
+    if (stream.frame !== null) cancelAnimationFrame(stream.frame);
   }
+  state.assistantStreams.clear();
+  state.commands.clear();
+  state.slashMenu?.close();
+  elements.historyLoader.hidden = true;
+  hideThinking();
+  elements.timeline.replaceChildren();
 }
 
 function showEmpty(text) {
-  elements.emptyState.hidden = false;
+  clearTimeline();
   elements.emptyState.querySelector("p").textContent = text;
+  elements.emptyState.hidden = false;
+  elements.timeline.append(elements.emptyState);
 }
 
 function hideEmpty() {
-  elements.emptyState.hidden = true;
+  if (elements.emptyState.parentElement) elements.emptyState.remove();
 }
 
 function showThinking(label = "正在思考") {
+  hideEmpty();
   elements.thinkingLabel.textContent = label;
+  elements.timeline.append(elements.thinkingIndicator);
   elements.thinkingIndicator.hidden = false;
+  scrollToBottom(false);
 }
 
 function hideThinking() {
@@ -802,17 +981,18 @@ function hideThinking() {
 
 function resizeComposer() {
   elements.messageInput.style.height = "auto";
-  elements.messageInput.style.height = `${Math.min(elements.messageInput.scrollHeight, 180)}px`;
+  elements.messageInput.style.height = `${Math.min(elements.messageInput.scrollHeight, window.innerHeight * 0.34)}px`;
 }
 
 function isNearBottom() {
-  const node = elements.timeline;
-  return node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+  const distance = elements.timeline.scrollHeight - elements.timeline.scrollTop - elements.timeline.clientHeight;
+  return distance < 140;
 }
 
 function scrollToBottom(force) {
-  if (!force && !isNearBottom()) return;
-  elements.timeline.scrollTop = elements.timeline.scrollHeight;
+  if (force || isNearBottom()) {
+    elements.timeline.scrollTop = elements.timeline.scrollHeight;
+  }
 }
 
 function showLogin() {
@@ -867,17 +1047,15 @@ function commandStatus(status) {
   return status || "完成";
 }
 
-function truncateTitle(title) {
-  const chars = [...String(title ?? "")];
-  if (chars.length <= COMMAND_TITLE_LIMIT) return title;
-  return `${chars.slice(0, COMMAND_TITLE_LIMIT).join("")}…`;
-}
-
 function formatDate(value) {
-  if (!value) return "";
-  const date = new Date(value * 1000);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString();
+  if (typeof value !== "number" || !Number.isFinite(value)) return "";
+  const milliseconds = value < 1_000_000_000_000 ? value * 1_000 : value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(milliseconds));
 }
 
 function errorMessage(error) {

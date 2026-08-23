@@ -1,14 +1,14 @@
-const CACHE_NAME = "grok-remote-shell-v1";
+const CACHE_NAME = "grok-remote-shell-v2";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=1",
-  "/boot.js?v=1",
-  "/app.js?v=1",
-  "/markdown.js?v=1",
-  "/slash-menu.js?v=1",
-  "/manifest.webmanifest?v=1",
-  "/icon.svg?v=1",
+  "/styles.css?v=2",
+  "/boot.js?v=2",
+  "/app.js?v=2",
+  "/markdown.js?v=2",
+  "/slash-menu.js?v=2",
+  "/manifest.webmanifest?v=2",
+  "/icon.svg?v=2",
 ];
 
 self.addEventListener("install", (event) => {

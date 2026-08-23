@@ -2,7 +2,7 @@
 
 本文记录已拍板的第一版范围和做法，供实现时对照。未写入「已定」的条目，实现前再确认，不擅自发挥。
 
-对照来源：与 Codex Remote 的产品形态对齐，但前后端都不共用；Worker 生命周期采用按需进程模型（Grok 用语替换 Codex 的 thread / full access）；本仓库讨论结论。
+对照来源：Grok Remote 与 Codex Remote 独立部署、使用各自的前后端和入口；Grok Remote 的界面以 Codex Remote 为基线保持布局、视觉和通用交互一致。Worker 生命周期采用按需进程模型（Grok 用语替换 Codex 的 thread / full access）；本仓库讨论结论。
 
 ## 1. 产品
 
@@ -16,7 +16,8 @@
 
 | 事项 | 结论 |
 | --- | --- |
-| 前端 | 独立实现，不和 Codex Remote 共用代码 |
+| 应用边界 | 与 Codex Remote 是两个独立项目、服务和入口，不合并运行时 |
+| UI 基线 | 布局、视觉和通用交互与 Codex Remote 保持一致；两边 UI 修改应同步 |
 | 功能 | Codex Remote 里有、Grok 也有的能力都要有；名字跟 Grok，不跟 Codex 对齐 |
 | 本机端口 | 8788（Codex Remote 占用 8787） |
 | 监听 | 只绑 `127.0.0.1`；远程走 Tailscale Serve 或公网 HTTPS 反代 |
@@ -34,7 +35,7 @@
 
 - 文件上传到 VPS、把路径或附件交给模型
 - 会话归档 / 回收站
-- 和 Codex Remote 共用前端或整套 Node 后端
+- 和 Codex Remote 合并成同一个运行时前端或共用整套 Node 后端
 - 每个会话常驻一个 Grok 进程（HAPI 那种，关掉页面或归档才释放）
 - 全站共用一个长驻 `grok agent`、所有会话都挂在上面
 - 浏览器直连 `grok agent serve`
@@ -131,7 +132,7 @@ Worker 是独立进程组里的 `grok agent stdio`，不是 Node `worker_threads
 
 ## 8. 前端
 
-独立 PWA：登录、项目选择、会话列表、本地编辑后发送、流式显示、安全 Markdown 子集、斜杠菜单、心跳与重连。
+独立部署的 PWA：登录、项目选择、会话列表、本地编辑后发送、流式显示、安全 Markdown 子集、斜杠菜单、心跳与重连。界面以 Codex Remote 当前前端为基线；Logo、产品名称和已确认的 Grok 能力差异可以不同，其他 UI 差异需先确认。
 
 约束：
 
