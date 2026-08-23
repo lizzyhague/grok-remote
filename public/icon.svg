@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Grok Remote">
+  <rect width="64" height="64" rx="16" fill="#1c1824"/>
+  <path d="M18 40c8-14 20-14 28 0" fill="none" stroke="#f3c56b" stroke-width="4" stroke-linecap="round"/>
+  <path d="M22 44c6-8 14-8 20 0" fill="none" stroke="#f3c56b" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="32" cy="24" r="6" fill="#f8f4ea"/>
+</svg>
