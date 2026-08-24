@@ -193,6 +193,10 @@ export class SessionService {
     const events = await this.#store.eventsSince(sessionId, 0);
     let seq = 0;
     for (const item of events) {
+      if (item.event.type === "session.rewound") {
+        seq = item.seq;
+        continue;
+      }
       if (item.event.type !== "turn.status") continue;
       const status = item.event.status;
       if (status === "completed" || status === "interrupted" || status === "failed") {

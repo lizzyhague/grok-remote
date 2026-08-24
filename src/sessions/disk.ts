@@ -10,6 +10,7 @@ export type GrokSessionRecord = {
   createdAt: number;
   updatedAt: number;
   model: string | null;
+  reasoningEffort: string | null;
   directory: string;
 };
 
@@ -131,6 +132,7 @@ export async function readSessionRecord(sessionDir: string): Promise<GrokSession
       createdAt: parseTimestamp(parsed.created_at),
       updatedAt: parseTimestamp(parsed.last_active_at ?? parsed.updated_at ?? parsed.created_at),
       model: typeof parsed.current_model_id === "string" ? parsed.current_model_id : null,
+      reasoningEffort: typeof parsed.reasoning_effort === "string" ? parsed.reasoning_effort : null,
       directory: sessionDir,
     };
   } catch {

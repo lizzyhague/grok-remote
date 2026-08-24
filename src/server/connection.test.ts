@@ -69,6 +69,37 @@ test("redacts missing authentication", async () => {
   services.presence.dispose();
 });
 
+test("releases the project lock after a synchronous session command", async () => {
+  const services = makeServices(fakeTurns());
+  const socket = new FakeSocket();
+  const connection = new BrowserConnection("conn-1", socket, "secret", services);
+
+  connection.receiveText(JSON.stringify({ type: "auth", requestId: "a", token: "secret" }));
+  connection.receiveText(JSON.stringify({
+    type: "session.start",
+    requestId: "s",
+    projectId: "projects/demo",
+  }));
+  connection.receiveText(JSON.stringify({
+    type: "command.run",
+    requestId: "c",
+    command: "context",
+    option: null,
+    argument: null,
+  }));
+  await connection.whenIdle();
+
+  const response = socket.messages.find((item) =>
+    typeof item === "object" && item !== null &&
+    (item as { requestId?: string }).requestId === "c"
+  ) as { ok: boolean };
+  assert.equal(response.ok, true);
+  assert.equal(services.locks.acquire("projects/demo", "conn-2", "other"), true);
+  services.locks.release("projects/demo", "conn-2");
+  await connection.disconnect();
+  services.presence.dispose();
+});
+
 function fakeTurns(): TurnApi {
   const listeners = new Set<(event: BrowserTurnEvent) => void>();
   return {
@@ -150,11 +181,29 @@ function makeServices(turns: TurnApi): BrowserConnectionServices {
         async toggleAlwaysApprove() {
           return turns.toggleAlwaysApprove("");
         },
-        async runPrompt() {
-          return { turnId: "turn-cmd" };
-        },
         cachedModels() {
           return [];
+        },
+        async inspectSession() {
+          return { sessionId: "pending-1" };
+        },
+        async setModel(_sessionId, modelId, reasoningEffort) {
+          return { sessionId: "pending-1", modelId, reasoningEffort };
+        },
+        async setEffort(_sessionId, reasoningEffort) {
+          return { sessionId: "pending-1", modelId: "grok", reasoningEffort };
+        },
+        async enterPlan() {
+          return { sessionId: "pending-1" };
+        },
+        async renameSession(_sessionId, title) {
+          return { sessionId: "pending-1", title };
+        },
+        async compact() {
+          return { turnId: "turn-cmd" };
+        },
+        async rewind() {
+          return { kind: "rewind" as const, sessionId: "pending-1", promptText: null };
         },
       },
       disk,

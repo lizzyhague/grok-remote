@@ -22,6 +22,54 @@ export type AcpUpdate = {
   update: Record<string, unknown>;
 };
 
+export type AcpContextInfo = {
+  used?: number;
+  total?: number;
+  systemPromptTokens?: number;
+  toolDefinitionsCount?: number;
+  toolDefinitionsTokens?: number;
+  compactionCount?: number;
+  turnCount?: number;
+  toolCallCount?: number;
+  messageCount?: number;
+  messageTokens?: number;
+  freeTokens?: number;
+  usagePct?: number;
+  autoCompactThresholdPercent?: number;
+  usageCategories?: Array<{ label?: string; tokens?: number; detail?: string }>;
+};
+
+export type AcpSessionInfo = {
+  sessionId: string;
+  shellVersion?: string;
+  cwd?: string;
+  agentName?: string;
+  model?: string;
+  modelDisplayName?: string;
+  resolvedModelId?: string | null;
+  modelFingerprint?: string | null;
+  apiBackend?: string;
+  turns?: number;
+  turnIndex?: number;
+  context?: AcpContextInfo;
+};
+
+export type AcpRewindPoint = {
+  prompt_index: number;
+  created_at?: string;
+  num_file_snapshots?: number;
+  has_file_changes?: boolean;
+  prompt_preview?: string;
+};
+
+export type AcpRewindResult = {
+  success: boolean;
+  target_prompt_index?: number;
+  mode?: string;
+  prompt_text?: string | null;
+  error?: string | null;
+};
+
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -74,7 +122,7 @@ export class AcpClient extends EventEmitter {
     const result = await this.request("session/new", {
       cwd,
       mcpServers: [],
-      _meta: yoloMode ? { yoloMode: true } : {},
+      _meta: { yoloMode },
     }) as { sessionId?: string };
     if (!result?.sessionId) {
       throw new Error("Grok 没有返回 session id。");
@@ -87,8 +135,66 @@ export class AcpClient extends EventEmitter {
       sessionId,
       cwd,
       mcpServers: [],
-      _meta: yoloMode ? { yoloMode: true } : {},
+      _meta: { yoloMode },
     });
+  }
+
+  async sessionSetModel(
+    sessionId: string,
+    modelId: string,
+    reasoningEffort: string | null = null,
+  ): Promise<void> {
+    await this.request("session/set_model", {
+      sessionId,
+      modelId,
+      ...(reasoningEffort ? { _meta: { reasoningEffort } } : {}),
+    });
+  }
+
+  async sessionSetMode(sessionId: string, modeId: string): Promise<void> {
+    await this.request("session/set_mode", { sessionId, modeId });
+  }
+
+  async sessionRename(sessionId: string, title: string): Promise<void> {
+    const result = await this.request("_x.ai/session/rename", {
+      sessionId,
+      title,
+      resetToAuto: false,
+    }) as { success?: boolean };
+    if (result?.success !== true) {
+      throw new Error("Grok 没有完成会话重命名。");
+    }
+  }
+
+  async sessionInfo(sessionId: string): Promise<AcpSessionInfo> {
+    const response = await this.request("_x.ai/session/info", { sessionId }) as {
+      result?: AcpSessionInfo;
+    };
+    if (!response?.result || typeof response.result.sessionId !== "string") {
+      throw new Error("Grok 没有返回会话状态。");
+    }
+    return response.result;
+  }
+
+  async sessionCompact(sessionId: string): Promise<void> {
+    await this.request("_x.ai/compact_conversation", { sessionId });
+  }
+
+  async rewindPoints(sessionId: string): Promise<AcpRewindPoint[]> {
+    const response = await this.request("_x.ai/rewind/points", { sessionId }) as {
+      rewind_points?: unknown;
+    };
+    if (!Array.isArray(response?.rewind_points)) return [];
+    return response.rewind_points.filter(isRewindPoint);
+  }
+
+  async rewindConversation(sessionId: string, targetPromptIndex: number): Promise<AcpRewindResult> {
+    return await this.request("_x.ai/rewind/execute", {
+      sessionId,
+      targetPromptIndex,
+      force: true,
+      mode: "conversation_only",
+    }) as AcpRewindResult;
   }
 
   async sessionPrompt(sessionId: string, text: string): Promise<{ stopReason?: string }> {
@@ -222,4 +328,11 @@ function isPermissionOption(
     value !== null &&
     typeof (value as { optionId?: unknown }).optionId === "string" &&
     typeof (value as { kind?: unknown }).kind === "string";
+}
+
+function isRewindPoint(value: unknown): value is AcpRewindPoint {
+  return typeof value === "object" &&
+    value !== null &&
+    Number.isInteger((value as AcpRewindPoint).prompt_index) &&
+    (value as AcpRewindPoint).prompt_index >= 0;
 }

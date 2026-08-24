@@ -2,10 +2,20 @@ import { randomUUID } from "node:crypto";
 
 import type { ResolvedProject } from "../projects/catalog.ts";
 import type { PresenceTracker } from "../server/presence.ts";
-import { publicToolInput } from "../sessions/history.ts";
 import { PENDING_SESSION_PREFIX } from "../sessions/types.ts";
 import type { RemoteSessionStore, StoredSessionMeta } from "../sessions/store.ts";
-import { AcpClient, type AcpPermissionRequest, type AcpUpdate } from "../worker/acp-client.ts";
+import {
+  AcpClient,
+  type AcpPermissionRequest,
+  type AcpSessionInfo,
+  type AcpUpdate,
+} from "../worker/acp-client.ts";
+import {
+  createPublicToolView,
+  exposesToolText,
+  updatePublicToolView,
+  type PublicToolView,
+} from "./tool-view.ts";
 import {
   assertWorkerCapacity,
   DEFAULT_MAX_WORKERS,
@@ -28,8 +38,14 @@ export type ApprovalView = {
 };
 
 type QueuedWork =
-  | { kind: "prompt"; turnId: string; text: string; clientMessageId: string | null }
-  | { kind: "stop" };
+  | {
+    kind: "prompt";
+    turnId: string;
+    text: string;
+    clientMessageId: string | null;
+    modeId: string | null;
+  }
+  | { kind: "compact"; turnId: string };
 
 type LiveWorker = {
   sessionKey: string;
@@ -45,6 +61,7 @@ type LiveWorker = {
   currentTurnId: string | null;
   currentAssistantItemId: string | null;
   assistantSegment: number;
+  tools: Map<string, PublicToolView>;
   pendingApproval: PendingApproval | null;
 };
 
@@ -143,6 +160,7 @@ export class TurnRuntime {
       turnId,
       text: input.text,
       clientMessageId: input.clientMessageId,
+      modeId: null,
     });
     void this.#drain(worker);
     return {
@@ -163,15 +181,127 @@ export class TurnRuntime {
       status: "queued",
     });
     const worker = await this.#ensureWorker(meta);
-    worker.queue.push({ kind: "prompt", turnId, text, clientMessageId: null });
+    worker.queue.push({ kind: "prompt", turnId, text, clientMessageId: null, modeId: null });
     void this.#drain(worker);
     return { turnId };
+  }
+
+  async inspectSession(sessionId: string): Promise<AcpSessionInfo> {
+    return this.#withAttached(sessionId, async (worker, grokSessionId) => {
+      const info = await worker.client.sessionInfo(grokSessionId);
+      const shellVersion = initializeAgentVersion(worker.client.initializeResult);
+      return shellVersion ? { ...info, shellVersion } : info;
+    });
+  }
+
+  async setModel(
+    sessionId: string,
+    modelId: string,
+    reasoningEffort: string | null,
+  ): Promise<{ sessionId: string; modelId: string; reasoningEffort: string | null }> {
+    return this.#withAttached(sessionId, async (worker, grokSessionId) => {
+      await worker.client.sessionSetModel(grokSessionId, modelId, reasoningEffort);
+      return { sessionId: grokSessionId, modelId, reasoningEffort };
+    });
+  }
+
+  async setEffort(
+    sessionId: string,
+    reasoningEffort: string,
+  ): Promise<{ sessionId: string; modelId: string; reasoningEffort: string }> {
+    return this.#withAttached(sessionId, async (worker, grokSessionId) => {
+      const info = await worker.client.sessionInfo(grokSessionId);
+      if (!info.model) throw new Error("Grok 没有返回当前模型，无法只修改思考强度。");
+      await worker.client.sessionSetModel(grokSessionId, info.model, reasoningEffort);
+      return { sessionId: grokSessionId, modelId: info.model, reasoningEffort };
+    });
+  }
+
+  async enterPlan(sessionId: string, prompt: string | null): Promise<{
+    sessionId?: string;
+    turnId?: string;
+  }> {
+    if (prompt) {
+      const meta = await this.#requireExistingMeta(sessionId);
+      const turnId = randomUUID();
+      await this.#emit(meta.id, {
+        type: "turn.accepted",
+        turnId,
+        status: "queued",
+      });
+      const worker = await this.#ensureWorker(meta);
+      worker.queue.push({
+        kind: "prompt",
+        turnId,
+        text: prompt,
+        clientMessageId: null,
+        modeId: "plan",
+      });
+      void this.#drain(worker);
+      return { turnId };
+    }
+    return this.#withAttached(sessionId, async (worker, grokSessionId) => {
+      await worker.client.sessionSetMode(grokSessionId, "plan");
+      return { sessionId: grokSessionId };
+    });
+  }
+
+  async renameSession(
+    sessionId: string,
+    title: string,
+  ): Promise<{ sessionId: string; title: string }> {
+    return this.#withAttached(sessionId, async (worker, grokSessionId) => {
+      await worker.client.sessionRename(grokSessionId, title);
+      const meta = await this.#store.readMeta(worker.sessionKey);
+      if (meta) {
+        meta.title = title;
+        await this.#store.writeMeta(meta);
+      }
+      await this.#emit(worker.sessionKey, { type: "session.title", title });
+      return { sessionId: grokSessionId, title };
+    });
+  }
+
+  async compact(sessionId: string): Promise<{ turnId: string }> {
+    const meta = await this.#requireExistingMeta(sessionId);
+    const turnId = randomUUID();
+    await this.#emit(meta.id, {
+      type: "turn.accepted",
+      turnId,
+      status: "queued",
+    });
+    const worker = await this.#ensureWorker(meta);
+    worker.queue.push({ kind: "compact", turnId });
+    void this.#drain(worker);
+    return { turnId };
+  }
+
+  async rewind(sessionId: string): Promise<{
+    kind: "rewind";
+    sessionId: string;
+    promptText: string | null;
+  }> {
+    return this.#withAttached(sessionId, async (worker, grokSessionId) => {
+      const points = await worker.client.rewindPoints(grokSessionId);
+      const latest = points.toSorted((left, right) => right.prompt_index - left.prompt_index)[0];
+      if (!latest) throw new Error("这个会话还没有可以回退的对话轮次。");
+      const result = await worker.client.rewindConversation(grokSessionId, latest.prompt_index);
+      if (!result.success) {
+        throw new Error(result.error || "Grok 没有完成对话回退。");
+      }
+      const promptText = typeof result.prompt_text === "string" ? result.prompt_text : null;
+      await this.#emit(worker.sessionKey, {
+        type: "session.rewound",
+        promptText,
+      });
+      return { kind: "rewind", sessionId: grokSessionId, promptText };
+    });
   }
 
   async stop(sessionId: string): Promise<void> {
     const worker = this.#workers.get(sessionId);
     if (!worker) return;
-    worker.queue = worker.queue.filter((item) => item.kind !== "prompt");
+    worker.queue = [];
     if (worker.pendingApproval) {
       this.#resolveApproval(worker, { outcome: "cancelled" });
     }
@@ -313,6 +443,7 @@ export class TurnRuntime {
       currentTurnId: null,
       currentAssistantItemId: null,
       assistantSegment: 0,
+      tools: new Map(),
       pendingApproval: null,
     };
 
@@ -344,33 +475,58 @@ export class TurnRuntime {
     return worker;
   }
 
+  async #withAttached<T>(
+    sessionId: string,
+    action: (worker: LiveWorker, grokSessionId: string) => Promise<T>,
+  ): Promise<T> {
+    const meta = await this.#requireExistingMeta(sessionId);
+    const worker = await this.#ensureWorker(meta);
+    if (worker.busy || worker.queue.length > 0) {
+      throw new Error("当前会话正在执行任务，请稍后再试。");
+    }
+    try {
+      const grokSessionId = await this.#attachSession(worker);
+      return await action(worker, grokSessionId);
+    } finally {
+      await this.#shutdown(worker);
+    }
+  }
+
   async #drain(worker: LiveWorker): Promise<void> {
     if (worker.busy) return;
     worker.busy = true;
     try {
       while (worker.queue.length > 0) {
         const item = worker.queue.shift();
-        if (!item || item.kind !== "prompt") continue;
+        if (!item) continue;
         worker.currentTurnId = item.turnId;
         worker.currentAssistantItemId = null;
         worker.assistantSegment = 0;
+        worker.tools.clear();
         await this.#emit(worker.sessionKey, {
           type: "turn.status",
           turnId: item.turnId,
           status: "running",
         });
-        await this.#emit(worker.sessionKey, {
-          type: "message.user",
-          turnId: item.turnId,
-          itemId: `${item.turnId}-user`,
-          text: item.text,
-        });
-
-        const grokSessionId = await this.#attachSession(worker);
         try {
-          const result = await worker.client.sessionPrompt(grokSessionId, item.text);
+          const grokSessionId = await this.#attachSession(worker);
+          let stop = "end_turn";
+          if (item.kind === "prompt") {
+            if (item.modeId) {
+              await worker.client.sessionSetMode(grokSessionId, item.modeId);
+            }
+            await this.#emit(worker.sessionKey, {
+              type: "message.user",
+              turnId: item.turnId,
+              itemId: `${item.turnId}-user`,
+              text: item.text,
+            });
+            const result = await worker.client.sessionPrompt(grokSessionId, item.text);
+            stop = result.stopReason ?? "end_turn";
+          } else {
+            await worker.client.sessionCompact(grokSessionId);
+          }
           await worker.updates;
-          const stop = result.stopReason ?? "end_turn";
           const status = stop === "cancelled" ? "interrupted" : stop === "end_turn" ? "completed" : "failed";
           await this.#emit(worker.sessionKey, {
             type: "turn.status",
@@ -388,6 +544,7 @@ export class TurnRuntime {
         } finally {
           worker.currentTurnId = null;
           worker.currentAssistantItemId = null;
+          worker.tools.clear();
         }
       }
     } finally {
@@ -412,17 +569,17 @@ export class TurnRuntime {
 
     const sessionId = await worker.client.sessionNew(worker.cwd, worker.yolo);
     const previousId = worker.sessionKey;
-    await this.#emit(previousId, {
-      type: "session.bound",
-      pendingId: previousId,
-      sessionId,
-    });
     const bound = await this.#store.bindGrokSession(previousId, sessionId);
     worker.grokSessionId = sessionId;
     worker.sessionKey = bound.id;
     worker.attached = true;
     this.#workers.delete(previousId);
     this.#workers.set(bound.id, worker);
+    await this.#emit(bound.id, {
+      type: "session.bound",
+      pendingId: previousId,
+      sessionId,
+    });
     return sessionId;
   }
 
@@ -453,20 +610,26 @@ export class TurnRuntime {
     }
     if (kind === "tool_call") {
       await this.#sealAssistant(worker);
+      const itemId = String(update.toolCallId ?? `${turnId}-tool`);
+      const tool = createPublicToolView(update);
+      worker.tools.set(itemId, tool);
+      if (tool.kind === "think") return;
       await this.#emit(worker.sessionKey, {
         type: "command.started",
         turnId,
-        itemId: String(update.toolCallId ?? `${turnId}-tool`),
-        title: typeof update.title === "string" ? update.title : "工具",
-        kind: typeof update.kind === "string" ? update.kind : "other",
-        input: publicToolInput(update),
+        itemId,
+        status: typeof update.status === "string" ? update.status : "pending",
+        ...publicToolPayload(tool),
       });
       return;
     }
     if (kind === "tool_call_update") {
       const itemId = String(update.toolCallId ?? `${turnId}-tool`);
+      const previous = worker.tools.get(itemId) ?? createPublicToolView(update);
+      const tool = updatePublicToolView(previous, update);
+      worker.tools.set(itemId, tool);
       const output = toolContentText(update.content);
-      if (output) {
+      if (output && exposesToolText(tool.kind) && tool.kind !== "think") {
         await this.#emit(worker.sessionKey, {
           type: "command.output.delta",
           turnId,
@@ -475,14 +638,17 @@ export class TurnRuntime {
         });
       }
       if (update.status === "completed" || update.status === "failed") {
-        await this.#emit(worker.sessionKey, {
-          type: "command.completed",
-          turnId,
-          itemId,
-          status: update.status,
-          input: publicToolInput(update),
-          output,
-        });
+        if (tool.kind !== "think") {
+          await this.#emit(worker.sessionKey, {
+            type: "command.completed",
+            turnId,
+            itemId,
+            status: update.status,
+            output: exposesToolText(tool.kind) ? output : null,
+            ...publicToolPayload(tool),
+          });
+        }
+        worker.tools.delete(itemId);
       }
     }
   }
@@ -621,6 +787,12 @@ export class TurnRuntime {
     return meta;
   }
 
+  async #requireExistingMeta(sessionId: string): Promise<StoredSessionMeta> {
+    const meta = await this.#store.readMeta(sessionId);
+    if (!meta) throw new Error("请先打开一个会话。");
+    return meta;
+  }
+
   #captureModels(initialize: unknown): void {
     if (!initialize || typeof initialize !== "object") return;
     const meta = (initialize as { _meta?: { modelState?: { availableModels?: unknown } } })._meta;
@@ -680,10 +852,21 @@ function isHumanRequired(toolCall: Record<string, unknown>): boolean {
 }
 
 function permissionKind(toolCall: Record<string, unknown>): ApprovalView["kind"] {
-  const kind = typeof toolCall.kind === "string" ? toolCall.kind : "";
+  const kind = createPublicToolView(toolCall).kind;
   if (kind === "edit" || kind === "delete" || kind === "move") return "file_change";
   if (kind === "execute") return "command";
   return "other";
+}
+
+function publicToolPayload(tool: PublicToolView): Record<string, unknown> {
+  const exposesText = exposesToolText(tool.kind);
+  return {
+    title: tool.title,
+    kind: tool.kind,
+    input: exposesText ? tool.input : null,
+    query: tool.kind === "search" ? tool.query : null,
+    resources: tool.kind === "search" || tool.kind === "fetch" ? tool.resources : [],
+  };
 }
 
 function permissionReason(toolCall: Record<string, unknown>): string | null {
@@ -693,4 +876,10 @@ function permissionReason(toolCall: Record<string, unknown>): string | null {
 function itemStatus(event: Record<string, unknown>): string | null {
   if (event.type === "turn.accepted") return "queued";
   return typeof event.status === "string" ? event.status : null;
+}
+
+function initializeAgentVersion(initialize: unknown): string | null {
+  if (!initialize || typeof initialize !== "object") return null;
+  const meta = (initialize as { _meta?: { agentVersion?: unknown } })._meta;
+  return typeof meta?.agentVersion === "string" ? meta.agentVersion : null;
 }

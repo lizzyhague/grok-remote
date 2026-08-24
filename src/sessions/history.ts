@@ -4,6 +4,12 @@ import {
   type TurnSnapshot,
   type TurnStatus,
 } from "./types.ts";
+import {
+  createPublicToolView,
+  exposesToolText,
+  updatePublicToolView,
+  type PublicToolKind,
+} from "../turns/tool-view.ts";
 
 type JsonObject = Record<string, unknown>;
 
@@ -87,13 +93,18 @@ function applyUpdate(turn: MutableTurn, update: JsonObject, meta: JsonObject): v
   }
   if (kind === "tool_call") {
     const id = stringField(update.toolCallId) ?? `tool-${turn.commands.size}`;
+    const tool = createPublicToolView(update);
+    if (tool.kind === "think") {
+      turn.breakAssistantMessage = true;
+      return;
+    }
     const command: Extract<TimelineItem, { type: "command" }> = {
       type: "command",
       id,
-      title: publicToolTitle(update),
-      kind: publicToolKind(update),
+      title: tool.title,
+      kind: tool.kind,
       status: stringField(update.status) ?? "pending",
-      input: clipStoredText(publicToolInput(update)),
+      input: exposesToolText(tool.kind) ? clipStoredText(tool.input) : null,
       output: null,
       outputTruncated: false,
     };
@@ -107,12 +118,18 @@ function applyUpdate(turn: MutableTurn, update: JsonObject, meta: JsonObject): v
     const command = turn.commands.get(id);
     if (!command) return;
     if (typeof update.status === "string") command.status = update.status;
-    const nextTitle = publicToolTitle(update);
-    if (nextTitle && nextTitle !== "工具") command.title = command.title || nextTitle;
-    const nextInput = publicToolInput(update);
-    if (nextInput && !command.input) command.input = clipStoredText(nextInput);
+    const tool = updatePublicToolView({
+      kind: command.kind as PublicToolKind,
+      title: command.title,
+      input: command.input,
+      query: null,
+      resources: [],
+    }, update);
+    command.kind = tool.kind;
+    command.title = tool.title;
+    if (exposesToolText(tool.kind) && tool.input) command.input = clipStoredText(tool.input);
     const output = toolOutputText(update.content);
-    if (output) {
+    if (output && exposesToolText(tool.kind)) {
       const combined = `${command.output ?? ""}${output}`;
       if (combined.length > MAX_STORED_COMMAND_OUTPUT) {
         command.output = combined.slice(-MAX_STORED_COMMAND_OUTPUT);
@@ -186,43 +203,9 @@ function freezeTurn(turn: MutableTurn): TurnSnapshot {
     id: turn.id,
     status: turn.status,
     error: turn.error,
-    items: turn.items.map((item) => {
-      if (item.type === "command" && item.output && item.output.length > MAX_STORED_COMMAND_OUTPUT) {
-        return {
-          ...item,
-          output: item.output.slice(-MAX_STORED_COMMAND_OUTPUT),
-          outputTruncated: true,
-        };
-      }
-      return item;
-    }),
+    // 重新加载只恢复对话；工具条目只在解析时承担气泡分界作用。
+    items: turn.items.filter((item) => item.type === "message" || item.type === "note"),
   };
-}
-
-function publicToolTitle(update: JsonObject): string {
-  const tool = toolMeta(update);
-  if (tool?.name) return tool.name;
-  const title = stringField(update.title);
-  if (title) return title;
-  return "工具";
-}
-
-export function publicToolInput(update: Record<string, unknown>): string | null {
-  const raw = "rawInput" in update ? update.rawInput : undefined;
-  if (typeof raw === "string" && raw.trim()) return raw;
-  if (!isObject(raw)) return null;
-  if (typeof raw.command === "string" && raw.command.trim()) return raw.command;
-  const fields: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(raw)) {
-    if (key === "variant" || value == null) continue;
-    fields[key] = value;
-  }
-  const keys = Object.keys(fields);
-  if (keys.length === 0) return null;
-  if (keys.length === 1 && typeof fields[keys[0]!] === "string") {
-    return String(fields[keys[0]!]);
-  }
-  return JSON.stringify(fields, null, 2);
 }
 
 function clipStoredText(text: string | null): string | null {
@@ -231,25 +214,6 @@ function clipStoredText(text: string | null): string | null {
   return text.slice(-MAX_STORED_COMMAND_OUTPUT);
 }
 
-function publicToolKind(update: JsonObject): string {
-  const kind = stringField(update.kind);
-  if (kind) return kind;
-  const tool = toolMeta(update);
-  if (tool?.kind) return tool.kind;
-  return "other";
-}
-
-function toolMeta(update: JsonObject): { name?: string; kind?: string } | null {
-  const meta = asObject(update._meta);
-  const tool = asObject(meta["x.ai/tool"]);
-  if (!tool) return null;
-  const result: { name?: string; kind?: string } = {};
-  const name = stringField(tool.name);
-  const kind = stringField(tool.kind);
-  if (name) result.name = name;
-  if (kind) result.kind = kind;
-  return result;
-}
 
 function looksLikeFileChange(
   update: JsonObject,

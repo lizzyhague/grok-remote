@@ -1,4 +1,4 @@
-import { renderMarkdown } from "./markdown.js";
+import { renderMarkdown, sanitizeHref } from "./markdown.js";
 
 const TOKEN_KEY = "grok-remote-token";
 const PROJECT_KEY = "grok-remote.project";
@@ -41,7 +41,6 @@ const elements = {
   messageInput: byId("message-input"),
   commandMenuButton: byId("command-menu-button"),
   rewindShortcut: byId("rewind-shortcut"),
-  sessionInfoShortcut: byId("session-info-shortcut"),
   alwaysApproveShortcut: byId("always-approve-shortcut"),
   taskButton: byId("task-button"),
 };
@@ -126,7 +125,6 @@ elements.commandMenuButton.addEventListener("click", () => {
   state.slashMenu?.handleInput();
 });
 elements.rewindShortcut.addEventListener("click", () => void state.slashMenu?.runShortcut("rewind"));
-elements.sessionInfoShortcut.addEventListener("click", () => void state.slashMenu?.runShortcut("session-info"));
 elements.alwaysApproveShortcut.addEventListener("click", () => void toggleAlwaysApprove());
 
 elements.appView.dataset.sidebarCollapsed = String(state.sidebarCollapsed);
@@ -284,6 +282,23 @@ async function resumeSession(sessionId) {
   closeMobileSidebar();
 }
 
+async function reloadAfterRewind(sessionId, promptText) {
+  try {
+    const opened = await request("session.resume", {
+      projectId: state.projectId,
+      sessionId,
+    });
+    applyOpenedSession(opened);
+    if (typeof promptText === "string" && promptText) {
+      elements.messageInput.value = promptText;
+      resizeComposer();
+    }
+    showNotice("已回退最近一轮；文件改动没有撤销。");
+  } catch (error) {
+    showNotice(errorMessage(error));
+  }
+}
+
 function applyOpenedSession(opened) {
   state.currentSessionId = opened.session?.id ?? null;
   state.sessionTitle = opened.session?.title || "";
@@ -342,7 +357,7 @@ function createSessionItem(session) {
   remove.type = "button";
   remove.className = "session-menu-trigger quiet";
   remove.setAttribute("aria-label", `永久删除 ${session.title || "新会话"}`);
-  remove.textContent = "⋯";
+  remove.textContent = "删";
   remove.addEventListener("click", () => void deleteSession(session));
   item.append(open, remove);
   return item;
@@ -509,6 +524,13 @@ function handleServerEvent(event) {
         const found = state.sessions.find((session) => session.id === state.currentSessionId);
         if (found) found.title = event.title;
         renderSessionList();
+      }
+      break;
+    case "session.rewound":
+      state.taskRunning = false;
+      hideThinking();
+      if (state.currentSessionId) {
+        void reloadAfterRewind(state.currentSessionId, event.promptText);
       }
       break;
     case "message.user":
@@ -715,61 +737,65 @@ function startCommand(event) {
   hideEmpty();
   const itemId = event.itemId ?? event.id;
   if (state.commands.has(itemId)) return;
+  const kind = normalizeToolKind(event.kind);
+  if (kind === "think") {
+    state.commands.set(itemId, { mode: "hidden", kind });
+    return;
+  }
+  if (isInlineToolKind(kind)) {
+    const element = document.createElement("p");
+    element.className = "tool-inline";
+    element.dataset.itemId = itemId;
+    appendToTimeline(element);
+    const command = {
+      mode: "inline",
+      element,
+      kind,
+      title: event.title || kind,
+      status: event.status || "in_progress",
+    };
+    state.commands.set(itemId, command);
+    renderToolEntry(command);
+    scrollToBottom(false);
+    return;
+  }
   const details = document.createElement("details");
   details.className = "command";
   details.dataset.itemId = itemId;
+  details.dataset.kind = kind;
   const summary = document.createElement("summary");
   const pane = document.createElement("div");
   pane.className = "command-pane";
-  const inputWrap = document.createElement("div");
-  inputWrap.className = "command-block";
-  const inputLabel = document.createElement("div");
-  inputLabel.className = "command-kicker";
-  inputLabel.textContent = "输入";
-  const input = document.createElement("pre");
-  input.className = "command-input";
-  inputWrap.append(inputLabel, input);
-  const split = document.createElement("div");
-  split.className = "command-split";
-  const outputWrap = document.createElement("div");
-  outputWrap.className = "command-block";
-  const outputLabel = document.createElement("div");
-  outputLabel.className = "command-kicker";
-  outputLabel.textContent = "输出";
-  const output = document.createElement("pre");
-  output.className = "command-output";
-  outputWrap.append(outputLabel, output);
-  pane.append(inputWrap, split, outputWrap);
   details.append(summary, pane);
   appendToTimeline(details);
   const command = {
+    mode: "card",
     details,
     summary,
-    inputWrap,
-    inputElement: input,
-    split,
-    outputWrap,
-    outputElement: output,
-    title: event.title || "工具",
-    status: "in_progress",
+    pane,
+    kind,
+    title: event.title || kind,
+    status: event.status || "in_progress",
     input: typeof event.input === "string" ? event.input : "",
+    query: typeof event.query === "string" ? event.query : "",
+    resources: publicResources(event.resources),
     output: "",
     truncated: false,
   };
   state.commands.set(itemId, command);
-  renderToolCard(command);
+  renderToolEntry(command);
   scrollToBottom(false);
 }
 
 function appendCommandOutput(itemId, delta) {
   const command = state.commands.get(itemId);
-  if (!command) return;
+  if (!command || command.mode !== "card") return;
   command.output += delta;
   if (command.output.length > MAX_COMMAND_OUTPUT) {
     command.output = command.output.slice(-MAX_COMMAND_OUTPUT);
     command.truncated = true;
   }
-  renderToolCard(command);
+  if (command.outputElement) command.outputElement.textContent = toolOutputText(command);
 }
 
 function completeCommand(event) {
@@ -778,45 +804,202 @@ function completeCommand(event) {
     startCommand({
       itemId,
       title: event.title,
+      kind: event.kind,
+      status: event.status,
       input: event.input,
+      query: event.query,
+      resources: event.resources,
     });
   }
-  const command = state.commands.get(itemId);
+  let command = state.commands.get(itemId);
   if (!command) return;
+  const nextKind = normalizeToolKind(event.kind || command.kind);
+  if (command.mode !== toolDisplayMode(nextKind)) {
+    command = replaceToolEntry(itemId, command, nextKind, event);
+    if (!command) return;
+  }
   if (event.title) command.title = event.title;
+  command.kind = nextKind;
   if (typeof event.input === "string" && event.input) command.input = event.input;
+  if (typeof event.query === "string" && event.query) command.query = event.query;
+  if (Array.isArray(event.resources)) command.resources = publicResources(event.resources);
   if (event.status) command.status = event.status;
-  if (typeof event.output === "string" && (event.output || !command.output)) {
+  if (command.mode === "card" && typeof event.output === "string" && (event.output || !command.output)) {
     command.output = event.output.length > MAX_COMMAND_OUTPUT
       ? event.output.slice(-MAX_COMMAND_OUTPUT)
       : event.output;
     command.truncated = event.outputTruncated === true || event.output.length > MAX_COMMAND_OUTPUT;
   }
-  renderToolCard(command);
+  renderToolEntry(command);
 }
 
-function renderToolCard(command) {
+function replaceToolEntry(itemId, command, kind, event) {
+  const previousNode = command.details || command.element || null;
+  const marker = previousNode?.isConnected ? document.createComment("tool position") : null;
+  if (marker) previousNode.replaceWith(marker);
+  else previousNode?.remove();
+
+  state.commands.delete(itemId);
+  startCommand({
+    itemId,
+    kind,
+    title: event.title || command.title || kind,
+    status: event.status || command.status,
+    input: typeof event.input === "string" ? event.input : command.input,
+    query: typeof event.query === "string" ? event.query : command.query,
+    resources: Array.isArray(event.resources) ? event.resources : command.resources,
+  });
+
+  const replacement = state.commands.get(itemId);
+  const replacementNode = replacement?.details || replacement?.element || null;
+  if (marker) {
+    if (replacementNode) marker.replaceWith(replacementNode);
+    else marker.remove();
+  }
+  if (replacement?.mode === "card" && command.mode === "card") {
+    replacement.output = command.output;
+    replacement.truncated = command.truncated;
+  }
+  return replacement;
+}
+
+function renderToolEntry(command) {
+  if (command.mode === "hidden") return;
   const status = commandStatus(command.status);
   const title = clipTitle(command.title);
-  command.summary.textContent = `工具：${title} · ${status}`;
-  const inputText = command.input.trim();
-  if (inputText) {
-    command.inputElement.textContent = inputText;
-    command.inputWrap.hidden = false;
-    command.split.hidden = false;
-  } else {
-    command.inputWrap.hidden = true;
-    command.split.hidden = true;
+  if (command.mode === "inline") {
+    command.element.textContent = `${command.kind} · ${title} · ${status}`;
+    return;
   }
-  command.outputElement.textContent = command.output
-    ? `${command.truncated ? "（较早输出已省略）\n" : ""}${command.output}`
-    : command.status === "in_progress" || command.status === "pending"
-      ? "等待输出……"
-      : "没有输出。";
+  command.details.dataset.kind = command.kind;
+  command.summary.textContent = `${command.kind} · ${title} · ${status}`;
+  command.pane.replaceChildren();
+  command.outputElement = null;
+  if (command.kind === "search") {
+    appendToolTextBlock(
+      command.pane,
+      "关键词",
+      command.query || (isRunningTool(command) ? "等待关键词……" : "没有可用的关键词。"),
+      "command-input",
+    );
+    appendResourceBlock(command, "结果", "没有可用的结果地址。");
+    return;
+  }
+  if (command.kind === "fetch") {
+    appendResourceBlock(command, "地址", "没有可用的资源地址。");
+    return;
+  }
+  appendToolTextBlock(command.pane, "输入", command.input || "没有输入。", "command-input");
+  command.outputElement = appendToolTextBlock(
+    command.pane,
+    "输出",
+    toolOutputText(command),
+    "command-output",
+  );
+}
+
+function appendToolTextBlock(pane, label, text, className) {
+  const block = document.createElement("div");
+  block.className = "command-block";
+  const kicker = document.createElement("div");
+  kicker.className = "command-kicker";
+  kicker.textContent = label;
+  const content = document.createElement("pre");
+  content.className = className;
+  content.textContent = text;
+  block.append(kicker, content);
+  pane.append(block);
+  return content;
+}
+
+function appendResourceBlock(command, label, emptyText) {
+  const block = document.createElement("div");
+  block.className = "command-block";
+  const kicker = document.createElement("div");
+  kicker.className = "command-kicker";
+  kicker.textContent = label;
+  block.append(kicker);
+  if (!command.resources.length) {
+    const empty = document.createElement("p");
+    empty.className = "command-resource-empty";
+    empty.textContent = isRunningTool(command) ? "等待地址……" : emptyText;
+    block.append(empty);
+  } else {
+    const list = document.createElement("ul");
+    list.className = "command-resources";
+    for (const resource of command.resources) {
+      const item = document.createElement("li");
+      const text = resource.label ? `${resource.label} — ${resource.address}` : resource.address;
+      const href = sanitizeHref(resource.address);
+      if (href && /^https?:\/\//i.test(href)) {
+        const link = document.createElement("a");
+        link.href = href;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = text;
+        item.append(link);
+      } else {
+        item.textContent = text;
+      }
+      list.append(item);
+    }
+    block.append(list);
+  }
+  command.pane.append(block);
+}
+
+function publicResources(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const resources = [];
+  for (const item of value) {
+    if (!item || typeof item.address !== "string") continue;
+    const address = item.address.trim();
+    if (!address || address.length > 2_048 || /[\u0000-\u001f\u007f]/.test(address) || seen.has(address)) {
+      continue;
+    }
+    seen.add(address);
+    resources.push({
+      address,
+      label: typeof item.label === "string"
+        ? item.label.replace(/\s+/g, " ").trim().slice(0, 256)
+        : "",
+    });
+  }
+  return resources;
+}
+
+function isRunningTool(command) {
+  return command.status === "in_progress" || command.status === "pending";
+}
+
+function toolOutputText(command) {
+  if (command.output) {
+    return `${command.truncated ? "（较早输出已省略）\n" : ""}${command.output}`;
+  }
+  return isRunningTool(command) ? "等待输出……" : "没有输出。";
+}
+
+function normalizeToolKind(kind) {
+  return [
+    "read", "edit", "delete", "move", "search", "execute",
+    "think", "fetch", "switch_mode", "other",
+  ].includes(kind) ? kind : "other";
+}
+
+function isInlineToolKind(kind) {
+  return kind === "read" || kind === "edit" || kind === "delete" ||
+    kind === "move" || kind === "switch_mode";
+}
+
+function toolDisplayMode(kind) {
+  if (kind === "think") return "hidden";
+  return isInlineToolKind(kind) ? "inline" : "card";
 }
 
 function clipTitle(title) {
-  const value = title || "工具";
+  const normalized = String(title || "工具").replace(/\s+/g, " ").trim();
+  const value = normalized || "工具";
   if (value.length <= TOOL_TITLE_LIMIT) return value;
   return `${value.slice(0, TOOL_TITLE_LIMIT - 1)}…`;
 }
@@ -911,6 +1094,7 @@ function handleCommandResult(result) {
     addTaskNote([result.title, ...(result.lines ?? [])].filter(Boolean).join("\n"));
     return;
   }
+  if (result?.kind === "rewind") return;
   if (result?.turnId) {
     state.taskRunning = true;
     showThinking();
@@ -967,7 +1151,6 @@ function updateControls() {
   elements.commandMenuButton.disabled = !connected || !hasSession || state.taskRunning || state.busy || hasText;
   elements.rewindShortcut.disabled = !connected || !hasSession || state.taskRunning || state.busy || confirmLocked;
   elements.rewindShortcut.title = confirmLocked ? "请先点开输入框再回退" : "";
-  elements.sessionInfoShortcut.disabled = !connected || !hasSession || state.busy;
   elements.alwaysApproveShortcut.disabled = !connected || !hasSession || state.busy || confirmLocked;
   elements.alwaysApproveShortcut.setAttribute("aria-pressed", String(state.alwaysApprove));
   elements.alwaysApproveShortcut.title = confirmLocked

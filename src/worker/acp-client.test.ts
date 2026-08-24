@@ -27,6 +27,42 @@ test("initializes without advertising fs or terminal capabilities", async () => 
   await client.close();
 });
 
+test("explicitly sends the selected permission mode for new and resumed sessions", async () => {
+  const { proc, stdin, stdout } = fakeProcess();
+  const client = new AcpClient(proc);
+
+  const created = client.sessionNew("/project", false);
+  const newRequest = JSON.parse(await readLine(stdin)) as {
+    id: number;
+    method: string;
+    params: { _meta: { yoloMode: boolean } };
+  };
+  assert.equal(newRequest.method, "session/new");
+  assert.deepEqual(newRequest.params._meta, { yoloMode: false });
+  stdout.write(`${JSON.stringify({
+    jsonrpc: "2.0",
+    id: newRequest.id,
+    result: { sessionId: "s1" },
+  })}\n`);
+  assert.equal(await created, "s1");
+
+  const resumed = client.sessionResume("s1", "/project", true);
+  const resumeRequest = JSON.parse(await readLine(stdin)) as {
+    id: number;
+    method: string;
+    params: { _meta: { yoloMode: boolean } };
+  };
+  assert.equal(resumeRequest.method, "session/resume");
+  assert.deepEqual(resumeRequest.params._meta, { yoloMode: true });
+  stdout.write(`${JSON.stringify({
+    jsonrpc: "2.0",
+    id: resumeRequest.id,
+    result: {},
+  })}\n`);
+  await resumed;
+  await client.close();
+});
+
 test("forwards permission requests to the caller", async () => {
   const { proc, stdout } = fakeProcess();
   const client = new AcpClient(proc);
@@ -49,6 +85,91 @@ test("forwards permission requests to the caller", async () => {
   const permission = await seen as { rpcId: number; options: unknown[] };
   assert.equal(permission.rpcId, 9);
   assert.equal(permission.options.length, 2);
+  await client.close();
+});
+
+test("uses Grok ACP methods for session commands", async () => {
+  const { proc, stdin, stdout } = fakeProcess();
+  const client = new AcpClient(proc);
+
+  await exchange(
+    stdin,
+    stdout,
+    client.sessionSetModel("s1", "grok-4.5", "medium"),
+    "session/set_model",
+    {
+      sessionId: "s1",
+      modelId: "grok-4.5",
+      _meta: { reasoningEffort: "medium" },
+    },
+    {},
+  );
+  await exchange(
+    stdin,
+    stdout,
+    client.sessionSetMode("s1", "plan"),
+    "session/set_mode",
+    { sessionId: "s1", modeId: "plan" },
+    {},
+  );
+  await exchange(
+    stdin,
+    stdout,
+    client.sessionRename("s1", "new title"),
+    "_x.ai/session/rename",
+    { sessionId: "s1", title: "new title", resetToAuto: false },
+    { success: true },
+  );
+
+  const infoPromise = client.sessionInfo("s1");
+  const infoRequest = JSON.parse(await readLine(stdin)) as { id: number; method: string };
+  assert.equal(infoRequest.method, "_x.ai/session/info");
+  stdout.write(`${JSON.stringify({
+    jsonrpc: "2.0",
+    id: infoRequest.id,
+    result: { result: { sessionId: "s1", model: "grok-4.5" } },
+  })}\n`);
+  assert.equal((await infoPromise).model, "grok-4.5");
+
+  await exchange(
+    stdin,
+    stdout,
+    client.sessionCompact("s1"),
+    "_x.ai/compact_conversation",
+    { sessionId: "s1" },
+    {},
+  );
+
+  const pointsPromise = client.rewindPoints("s1");
+  const pointsRequest = JSON.parse(await readLine(stdin)) as { id: number; method: string };
+  assert.equal(pointsRequest.method, "_x.ai/rewind/points");
+  stdout.write(`${JSON.stringify({
+    jsonrpc: "2.0",
+    id: pointsRequest.id,
+    result: { rewind_points: [{ prompt_index: 3, prompt_preview: "latest" }] },
+  })}\n`);
+  assert.equal((await pointsPromise)[0]?.prompt_index, 3);
+
+  const rewindPromise = client.rewindConversation("s1", 3);
+  const rewindRequest = JSON.parse(await readLine(stdin)) as {
+    id: number;
+    method: string;
+    params: unknown;
+  };
+  assert.equal(rewindRequest.method, "_x.ai/rewind/execute");
+  assert.deepEqual(rewindRequest.params, {
+    sessionId: "s1",
+    targetPromptIndex: 3,
+    force: true,
+    mode: "conversation_only",
+  });
+  stdout.write(`${JSON.stringify({
+    jsonrpc: "2.0",
+    id: rewindRequest.id,
+    result: { success: true, prompt_text: "latest" },
+  })}\n`);
+  assert.equal((await rewindPromise).prompt_text, "latest");
+
   await client.close();
 });
 
@@ -89,4 +210,23 @@ function readLine(stream: PassThrough): Promise<string> {
     };
     stream.on("data", onData);
   });
+}
+
+async function exchange(
+  stdin: PassThrough,
+  stdout: PassThrough,
+  pending: Promise<unknown>,
+  method: string,
+  params: unknown,
+  result: unknown,
+): Promise<void> {
+  const request = JSON.parse(await readLine(stdin)) as {
+    id: number;
+    method: string;
+    params: unknown;
+  };
+  assert.equal(request.method, method);
+  assert.deepEqual(request.params, params);
+  stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
+  await pending;
 }

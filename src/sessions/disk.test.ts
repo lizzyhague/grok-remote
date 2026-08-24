@@ -91,7 +91,7 @@ test("parses updates.jsonl into chat items and hides thoughts", () => {
 
   const turns = parseUpdatesJsonl(source);
   assert.equal(turns.length, 1);
-  assert.deepEqual(turns[0]?.items.map((item) => item.type), ["message", "message", "command"]);
+  assert.deepEqual(turns[0]?.items.map((item) => item.type), ["message", "message"]);
   const assistant = turns[0]?.items[1];
   assert.equal(assistant && assistant.type === "message" ? assistant.text : "", "hello world");
   assert.equal(
@@ -121,12 +121,11 @@ test("starts a new assistant bubble after tools even without message ids", () =>
   ].join("\n");
 
   const turns = parseUpdatesJsonl(source);
-  assert.deepEqual(turns[0]?.items.map((item) => item.type), ["message", "message", "command", "message"]);
+  assert.deepEqual(turns[0]?.items.map((item) => item.type), ["message", "message", "message"]);
   assert.equal(textOf(turns[0]?.items[1]), "first paragraph");
-  const tool = turns[0]?.items[2];
-  assert.equal(tool && tool.type === "command" ? tool.input : null, "ls -la src");
-  assert.equal(tool && tool.type === "command" ? tool.output : null, "app.js\n");
-  assert.equal(textOf(turns[0]?.items[3]), "second paragraph");
+  assert.equal(textOf(turns[0]?.items[2]), "second paragraph");
+  assert.equal(JSON.stringify(turns).includes("ls -la src"), false);
+  assert.equal(JSON.stringify(turns).includes("app.js"), false);
 });
 
 test("starts a new assistant bubble after hidden thoughts", () => {
@@ -141,6 +140,26 @@ test("starts a new assistant bubble after hidden thoughts", () => {
   assert.deepEqual(turns[0]?.items.map((item) => item.type), ["message", "message", "message"]);
   assert.equal(textOf(turns[0]?.items[1]), "first reply");
   assert.equal(textOf(turns[0]?.items[2]), "second reply");
+});
+
+test("hides think tools while preserving their assistant bubble boundary", () => {
+  const source = [
+    updateLine("user_message_chunk", { content: { type: "text", text: "do it" } }),
+    updateLine("agent_message_chunk", { content: { type: "text", text: "first reply" } }),
+    updateLine("tool_call", {
+      toolCallId: "think-1",
+      title: "private plan",
+      kind: "think",
+      rawInput: { private: "hidden plan" },
+    }),
+    updateLine("agent_message_chunk", { content: { type: "text", text: "second reply" } }),
+  ].join("\n");
+
+  const turns = parseUpdatesJsonl(source);
+  assert.deepEqual(turns[0]?.items.map((item) => item.type), ["message", "message", "message"]);
+  assert.equal(textOf(turns[0]?.items[1]), "first reply");
+  assert.equal(textOf(turns[0]?.items[2]), "second reply");
+  assert.equal(JSON.stringify(turns).includes("private"), false);
 });
 
 function updateLine(sessionUpdate: string, update: Record<string, unknown>): string {

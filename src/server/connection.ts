@@ -340,20 +340,23 @@ export class BrowserConnection {
     if (request.command === "always-approve") {
       return this.#toggleAlwaysApprove();
     }
-    if (request.command === "session-info" || request.command === "context") {
-      return this.#services.commands.run(sessionId, request.command, request.option, request.argument);
-    }
     const projectId = this.#projectId!;
     if (!this.#services.locks.acquire(projectId, this.#id, sessionId)) {
       throw new BrowserRequestError("project_busy", "这个项目已有另一个任务正在运行。");
     }
     try {
-      return await this.#services.commands.run(
+      const result = await this.#services.commands.run(
         sessionId,
         request.command,
         request.option,
         request.argument,
       );
+      if (hasTurnId(result)) {
+        this.#services.locks.setTaskId(projectId, this.#id, result.turnId);
+      } else {
+        this.#services.locks.release(projectId, this.#id);
+      }
+      return result;
     } catch (error) {
       this.#services.locks.release(projectId, this.#id);
       throw error;
@@ -428,6 +431,12 @@ function tokensEqual(received: string, expected: string): boolean {
   const left = Buffer.from(received);
   const right = Buffer.from(expected);
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function hasTurnId(value: unknown): value is { turnId: string } {
+  return typeof value === "object" &&
+    value !== null &&
+    typeof (value as { turnId?: unknown }).turnId === "string";
 }
 
 export type { ApprovalView };
