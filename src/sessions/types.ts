@@ -28,6 +28,7 @@ export type TimelineItem =
     title: string;
     kind: string;
     status: string;
+    input: string | null;
     output: string | null;
     outputTruncated: boolean;
   }

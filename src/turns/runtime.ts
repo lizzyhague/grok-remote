@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ResolvedProject } from "../projects/catalog.ts";
 import type { PresenceTracker } from "../server/presence.ts";
+import { publicToolInput } from "../sessions/history.ts";
 import { PENDING_SESSION_PREFIX } from "../sessions/types.ts";
 import type { RemoteSessionStore, StoredSessionMeta } from "../sessions/store.ts";
 import { AcpClient, type AcpPermissionRequest, type AcpUpdate } from "../worker/acp-client.ts";
@@ -42,6 +43,8 @@ type LiveWorker = {
   attached: boolean;
   updates: Promise<void>;
   currentTurnId: string | null;
+  currentAssistantItemId: string | null;
+  assistantSegment: number;
   pendingApproval: PendingApproval | null;
 };
 
@@ -308,6 +311,8 @@ export class TurnRuntime {
       attached: false,
       updates: Promise.resolve(),
       currentTurnId: null,
+      currentAssistantItemId: null,
+      assistantSegment: 0,
       pendingApproval: null,
     };
 
@@ -347,6 +352,8 @@ export class TurnRuntime {
         const item = worker.queue.shift();
         if (!item || item.kind !== "prompt") continue;
         worker.currentTurnId = item.turnId;
+        worker.currentAssistantItemId = null;
+        worker.assistantSegment = 0;
         await this.#emit(worker.sessionKey, {
           type: "turn.status",
           turnId: item.turnId,
@@ -380,6 +387,7 @@ export class TurnRuntime {
           });
         } finally {
           worker.currentTurnId = null;
+          worker.currentAssistantItemId = null;
         }
       }
     } finally {
@@ -423,26 +431,35 @@ export class TurnRuntime {
     if (!turnId) return;
     const update = payload.update;
     const kind = typeof update.sessionUpdate === "string" ? update.sessionUpdate : "";
-    if (kind === "agent_thought_chunk" || kind === "user_message_chunk") return;
+    if (kind === "user_message_chunk") return;
+    if (kind === "agent_thought_chunk") {
+      await this.#sealAssistant(worker);
+      return;
+    }
     if (kind === "agent_message_chunk") {
       const text = contentText(update.content);
       if (!text) return;
-      const itemId = typeof update.messageId === "string" ? update.messageId : `${turnId}-assistant`;
+      if (!worker.currentAssistantItemId) {
+        worker.assistantSegment += 1;
+        worker.currentAssistantItemId = `${turnId}-assistant-${worker.assistantSegment}`;
+      }
       await this.#emit(worker.sessionKey, {
         type: "message.delta",
         turnId,
-        itemId,
+        itemId: worker.currentAssistantItemId,
         text,
       });
       return;
     }
     if (kind === "tool_call") {
+      await this.#sealAssistant(worker);
       await this.#emit(worker.sessionKey, {
         type: "command.started",
         turnId,
         itemId: String(update.toolCallId ?? `${turnId}-tool`),
         title: typeof update.title === "string" ? update.title : "工具",
         kind: typeof update.kind === "string" ? update.kind : "other",
+        input: publicToolInput(update),
       });
       return;
     }
@@ -462,8 +479,8 @@ export class TurnRuntime {
           type: "command.completed",
           turnId,
           itemId,
-          title: typeof update.title === "string" ? update.title : undefined,
           status: update.status,
+          input: publicToolInput(update),
           output,
         });
       }
@@ -565,6 +582,16 @@ export class TurnRuntime {
     }
     await worker.client.close();
     await terminateAgent(worker.agent);
+  }
+
+  async #sealAssistant(worker: LiveWorker): Promise<void> {
+    if (!worker.currentAssistantItemId || !worker.currentTurnId) return;
+    await this.#emit(worker.sessionKey, {
+      type: "message.completed",
+      turnId: worker.currentTurnId,
+      itemId: worker.currentAssistantItemId,
+    });
+    worker.currentAssistantItemId = null;
   }
 
   async #emit(sessionId: string, event: BrowserTurnEvent): Promise<void> {

@@ -1,9 +1,11 @@
 import { renderMarkdown } from "./markdown.js";
 
 const TOKEN_KEY = "grok-remote-token";
+const PROJECT_KEY = "grok-remote.project";
 const SIDEBAR_COLLAPSED_KEY = "grok-remote.sidebar-collapsed";
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_COMMAND_OUTPUT = 100_000;
+const TOOL_TITLE_LIMIT = 48;
 /** 输入框失焦后稍等再点亮 rewind / always-approve，避免同一下既失焦又点到确认。 */
 const COMPOSER_CONFIRM_UNLOCK_MS = 300;
 
@@ -65,6 +67,7 @@ const state = {
   composerLocksConfirms: false,
   composerFocusTimer: null,
   assistantStreams: new Map(),
+  liveAssistant: null,
   commands: new Map(),
   slashMenu: null,
 };
@@ -78,6 +81,7 @@ elements.tokenForm.addEventListener("submit", (event) => {
 elements.changeTokenButton.addEventListener("click", showLogin);
 elements.projectSelect.addEventListener("change", () => {
   state.projectId = elements.projectSelect.value;
+  stateSet(PROJECT_KEY, state.projectId);
   resetCurrentSession();
   void loadSessions();
 });
@@ -239,8 +243,13 @@ async function loadProjects() {
     option.textContent = project.name;
     elements.projectSelect.append(option);
   }
-  state.projectId = state.projects[0]?.id ?? "";
-  elements.projectSelect.value = state.projectId;
+  const savedProject = stateGet(PROJECT_KEY);
+  const selected = state.projects.some((project) => project.id === savedProject)
+    ? savedProject
+    : state.projects[0]?.id ?? "";
+  state.projectId = selected;
+  elements.projectSelect.value = selected;
+  if (selected) stateSet(PROJECT_KEY, selected);
   await loadSessions();
 }
 
@@ -371,8 +380,6 @@ function resetCurrentSession() {
   state.lastSeq = 0;
   state.taskRunning = false;
   state.alwaysApprove = false;
-  state.assistantStreams.clear();
-  state.commands.clear();
   updateConversationTitle();
   clearTimeline();
   showEmpty("选择以前的会话，或者新建一个会话。");
@@ -398,18 +405,6 @@ function renderTasks(tasks) {
     for (const item of task.items ?? []) {
       if (item.type === "message") {
         addMessage(item.role, item.text, item.id, false);
-        rendered += 1;
-      } else if (item.type === "command") {
-        completeCommand({
-          id: item.id,
-          title: item.title,
-          status: item.status,
-          output: item.output,
-          outputTruncated: item.outputTruncated,
-        });
-        rendered += 1;
-      } else if (item.type === "file_change") {
-        addFileChange(item);
         rendered += 1;
       } else if (item.type === "note") {
         addTaskNote(item.text);
@@ -530,9 +525,10 @@ function handleServerEvent(event) {
       completeAssistant(event.itemId, event.text ?? "");
       break;
     case "command.started":
+      sealAssistantStreams();
       hideThinking();
       startCommand(event);
-      showThinking("正在执行命令");
+      showThinking("正在执行工具");
       break;
     case "command.output.delta":
       appendCommandOutput(event.itemId, event.text ?? "");
@@ -581,7 +577,7 @@ function handleServerEvent(event) {
 function addMessage(role, text, id, buffered) {
   hideEmpty();
   const element = createMessageElement(role, text, id, buffered);
-  elements.timeline.append(element);
+  appendToTimeline(element);
   if (role === "assistant" && buffered) {
     state.assistantStreams.set(id, {
       itemId: id,
@@ -614,32 +610,65 @@ function createMessageElement(role, text, id, buffered) {
 }
 
 function appendAssistantDelta(itemId, delta) {
-  if (!itemId || !delta) return;
-  let stream = state.assistantStreams.get(itemId);
-  if (!stream) {
-    addMessage("assistant", "", itemId, true);
-    stream = state.assistantStreams.get(itemId);
+  if (!delta) return;
+  let stream = state.liveAssistant;
+  if (!stream || stream.completed || stream.markdownRendered) {
+    const id = itemId || `assistant-${state.assistantStreams.size + 1}`;
+    addMessage("assistant", "", id, true);
+    stream = state.assistantStreams.get(id);
+    state.liveAssistant = stream;
+    scrollToBottom(true);
   }
+  if (!stream) return;
   stream.target += delta;
   stream.element.classList.add("pending");
   scheduleAssistantFrame(stream);
 }
 
+function sealAssistantStreams() {
+  const streams = new Set(state.assistantStreams.values());
+  if (state.liveAssistant) streams.add(state.liveAssistant);
+  for (const stream of streams) {
+    if (!stream.completed && stream.target) {
+      completeAssistant(stream.itemId, stream.target);
+    }
+  }
+  state.liveAssistant = null;
+}
+
 function completeAssistant(itemId, text) {
   let stream = state.assistantStreams.get(itemId);
+  const finalText = text || stream?.target || "";
   if (!stream) {
+    if (!finalText) return;
     addMessage("assistant", "", itemId, true);
     stream = state.assistantStreams.get(itemId);
   }
-  const finalText = text || stream.target;
-  if (!finalText.startsWith(stream.shown)) {
+  if (!stream) return;
+  if (stream.textElement && !finalText.startsWith(stream.shown)) {
     stream.shown = "";
     stream.textElement.textContent = "";
   }
   stream.target = finalText;
   stream.completed = true;
+  if (stream.markdownRendered || stream.shown === finalText) {
+    finishAssistant(stream);
+    return;
+  }
   stream.element.classList.add("pending");
   scheduleAssistantFrame(stream);
+}
+
+function finishAssistant(stream) {
+  stream.completed = true;
+  stream.shown = stream.target;
+  stream.element.classList.remove("pending");
+  if (stream.target) {
+    stream.element.replaceChildren(renderMarkdown(stream.target));
+    stream.markdownRendered = true;
+    stream.textElement = null;
+  }
+  if (state.liveAssistant === stream) state.liveAssistant = null;
 }
 
 function scheduleAssistantFrame(stream) {
@@ -649,10 +678,9 @@ function scheduleAssistantFrame(stream) {
 
 function animateAssistant(stream) {
   stream.frame = null;
-  if (stream.markdownRendered) {
+  if (stream.markdownRendered || (stream.completed && stream.shown === stream.target)) {
     const stickToBottom = isNearBottom();
-    stream.shown = stream.target;
-    stream.element.replaceChildren(renderMarkdown(stream.target));
+    finishAssistant(stream);
     if (stickToBottom) scrollToBottom(false);
     return;
   }
@@ -660,14 +688,17 @@ function animateAssistant(stream) {
   if (remaining <= 0) {
     if (stream.completed) {
       const stickToBottom = isNearBottom();
-      stream.element.classList.remove("pending");
-      if (!stream.markdownRendered) {
-        stream.element.replaceChildren(renderMarkdown(stream.target));
-        stream.markdownRendered = true;
-        if (stickToBottom) scrollToBottom(false);
-      }
+      finishAssistant(stream);
+      if (stickToBottom) scrollToBottom(false);
     }
     return;
+  }
+  if (!stream.textElement || !stream.textElement.isConnected) {
+    const pre = document.createElement("pre");
+    pre.className = "message-text";
+    stream.element.replaceChildren(pre);
+    stream.textElement = pre;
+    stream.shown = "";
   }
   const stickToBottom = isNearBottom();
   let amount = Math.min(80, Math.max(1, Math.ceil(remaining / 24)));
@@ -688,20 +719,45 @@ function startCommand(event) {
   details.className = "command";
   details.dataset.itemId = itemId;
   const summary = document.createElement("summary");
+  const pane = document.createElement("div");
+  pane.className = "command-pane";
+  const inputWrap = document.createElement("div");
+  inputWrap.className = "command-block";
+  const inputLabel = document.createElement("div");
+  inputLabel.className = "command-kicker";
+  inputLabel.textContent = "输入";
+  const input = document.createElement("pre");
+  input.className = "command-input";
+  inputWrap.append(inputLabel, input);
+  const split = document.createElement("div");
+  split.className = "command-split";
+  const outputWrap = document.createElement("div");
+  outputWrap.className = "command-block";
+  const outputLabel = document.createElement("div");
+  outputLabel.className = "command-kicker";
+  outputLabel.textContent = "输出";
   const output = document.createElement("pre");
-  const fullTitle = event.title || "命令";
-  summary.textContent = `命令：${fullTitle} · 运行中`;
-  output.textContent = "等待输出……";
-  details.append(summary, output);
-  elements.timeline.append(details);
-  state.commands.set(itemId, {
+  output.className = "command-output";
+  outputWrap.append(outputLabel, output);
+  pane.append(inputWrap, split, outputWrap);
+  details.append(summary, pane);
+  appendToTimeline(details);
+  const command = {
     details,
     summary,
+    inputWrap,
+    inputElement: input,
+    split,
+    outputWrap,
     outputElement: output,
-    title: fullTitle,
+    title: event.title || "工具",
+    status: "in_progress",
+    input: typeof event.input === "string" ? event.input : "",
     output: "",
     truncated: false,
-  });
+  };
+  state.commands.set(itemId, command);
+  renderToolCard(command);
   scrollToBottom(false);
 }
 
@@ -713,28 +769,56 @@ function appendCommandOutput(itemId, delta) {
     command.output = command.output.slice(-MAX_COMMAND_OUTPUT);
     command.truncated = true;
   }
-  command.outputElement.textContent = `${command.truncated ? "（较早输出已省略）\n" : ""}${command.output}`;
+  renderToolCard(command);
 }
 
 function completeCommand(event) {
   const itemId = event.id ?? event.itemId;
   if (!state.commands.has(itemId)) {
-    startCommand({ itemId, title: event.title });
+    startCommand({
+      itemId,
+      title: event.title,
+      input: event.input,
+    });
   }
   const command = state.commands.get(itemId);
   if (!command) return;
   if (event.title) command.title = event.title;
-  const status = commandStatus(event.status);
-  command.summary.textContent = `命令：${command.title} · ${status}`;
-  if (typeof event.output === "string") {
+  if (typeof event.input === "string" && event.input) command.input = event.input;
+  if (event.status) command.status = event.status;
+  if (typeof event.output === "string" && (event.output || !command.output)) {
     command.output = event.output.length > MAX_COMMAND_OUTPUT
       ? event.output.slice(-MAX_COMMAND_OUTPUT)
       : event.output;
     command.truncated = event.outputTruncated === true || event.output.length > MAX_COMMAND_OUTPUT;
   }
+  renderToolCard(command);
+}
+
+function renderToolCard(command) {
+  const status = commandStatus(command.status);
+  const title = clipTitle(command.title);
+  command.summary.textContent = `工具：${title} · ${status}`;
+  const inputText = command.input.trim();
+  if (inputText) {
+    command.inputElement.textContent = inputText;
+    command.inputWrap.hidden = false;
+    command.split.hidden = false;
+  } else {
+    command.inputWrap.hidden = true;
+    command.split.hidden = true;
+  }
   command.outputElement.textContent = command.output
     ? `${command.truncated ? "（较早输出已省略）\n" : ""}${command.output}`
-    : "没有输出。";
+    : command.status === "in_progress" || command.status === "pending"
+      ? "等待输出……"
+      : "没有输出。";
+}
+
+function clipTitle(title) {
+  const value = title || "工具";
+  if (value.length <= TOOL_TITLE_LIMIT) return value;
+  return `${value.slice(0, TOOL_TITLE_LIMIT - 1)}…`;
 }
 
 function addFileChange(event) {
@@ -742,7 +826,7 @@ function addFileChange(event) {
   const note = document.createElement("p");
   note.className = "file-change";
   note.textContent = `文件改动完成：${event.changedFiles ?? 0} 个文件。`;
-  elements.timeline.append(note);
+  appendToTimeline(note);
   scrollToBottom(false);
 }
 
@@ -750,8 +834,16 @@ function addTaskNote(text) {
   const note = document.createElement("p");
   note.className = "task-note";
   note.textContent = text;
-  elements.timeline.append(note);
+  appendToTimeline(note);
   scrollToBottom(false);
+}
+
+function appendToTimeline(node) {
+  if (elements.thinkingIndicator.parentNode === elements.timeline) {
+    elements.thinkingIndicator.before(node);
+    return;
+  }
+  elements.timeline.append(node);
 }
 
 function addApproval(approval) {
@@ -949,6 +1041,7 @@ function clearTimeline() {
     if (stream.frame !== null) cancelAnimationFrame(stream.frame);
   }
   state.assistantStreams.clear();
+  state.liveAssistant = null;
   state.commands.clear();
   state.slashMenu?.close();
   elements.historyLoader.hidden = true;
@@ -1043,7 +1136,7 @@ function scheduleReconnect() {
 function commandStatus(status) {
   if (status === "completed") return "完成";
   if (status === "failed") return "失败";
-  if (status === "in_progress") return "运行中";
+  if (status === "in_progress" || status === "pending") return "运行中";
   return status || "完成";
 }
 

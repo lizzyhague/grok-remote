@@ -8,7 +8,7 @@ import {
 type JsonObject = Record<string, unknown>;
 
 /**
- * 把 Grok 的 updates.jsonl 收成浏览器时间线。思考内容和原始工具参数不进入浏览器。
+ * 把 Grok 的 updates.jsonl 收成浏览器时间线。思考内容和 ACP 内部字段不进入浏览器。
  */
 export function parseUpdatesJsonl(source: string): TurnSnapshot[] {
   const turns = new Map<string, MutableTurn>();
@@ -47,6 +47,7 @@ export function parseUpdatesJsonl(source: string): TurnSnapshot[] {
         items: [],
         messages: new Map(),
         commands: new Map(),
+        breakAssistantMessage: false,
       };
       turns.set(promptId, turn);
       order.push(promptId);
@@ -65,6 +66,7 @@ type MutableTurn = {
   items: TimelineItem[];
   messages: Map<string, { role: "user" | "assistant"; text: string; item: Extract<TimelineItem, { type: "message" }> }>;
   commands: Map<string, Extract<TimelineItem, { type: "command" }>>;
+  breakAssistantMessage: boolean;
 };
 
 function applyUpdate(turn: MutableTurn, update: JsonObject, meta: JsonObject): void {
@@ -78,6 +80,9 @@ function applyUpdate(turn: MutableTurn, update: JsonObject, meta: JsonObject): v
     return;
   }
   if (kind === "agent_thought_chunk") {
+    // 思考内容不进入历史，但它表示助手开始了新的工作阶段。
+    // 下一段可见回复必须另起气泡，和实时事件流保持一致。
+    turn.breakAssistantMessage = true;
     return;
   }
   if (kind === "tool_call") {
@@ -88,6 +93,7 @@ function applyUpdate(turn: MutableTurn, update: JsonObject, meta: JsonObject): v
       title: publicToolTitle(update),
       kind: publicToolKind(update),
       status: stringField(update.status) ?? "pending",
+      input: clipStoredText(publicToolInput(update)),
       output: null,
       outputTruncated: false,
     };
@@ -101,6 +107,10 @@ function applyUpdate(turn: MutableTurn, update: JsonObject, meta: JsonObject): v
     const command = turn.commands.get(id);
     if (!command) return;
     if (typeof update.status === "string") command.status = update.status;
+    const nextTitle = publicToolTitle(update);
+    if (nextTitle && nextTitle !== "工具") command.title = command.title || nextTitle;
+    const nextInput = publicToolInput(update);
+    if (nextInput && !command.input) command.input = clipStoredText(nextInput);
     const output = toolOutputText(update.content);
     if (output) {
       const combined = `${command.output ?? ""}${output}`;
@@ -141,12 +151,24 @@ function appendMessage(
   messageId: string | null,
 ): void {
   if (!text) return;
-  const id = messageId ?? `${role}-${turn.messages.size}`;
-  const existing = turn.messages.get(id);
-  if (existing) {
-    existing.text += text;
-    existing.item.text = existing.text;
+  // 连续同角色文字并进当前气泡；中间插入工具后另起一段。
+  const last = turn.items.at(-1);
+  if (
+    last?.type === "message" &&
+    last.role === role &&
+    !(role === "assistant" && turn.breakAssistantMessage)
+  ) {
+    last.text += text;
+    const tracked = turn.messages.get(last.id);
+    if (tracked) {
+      tracked.text = last.text;
+      tracked.item.text = last.text;
+    }
     return;
+  }
+  let id = messageId ?? `${role}-${turn.messages.size}`;
+  if (turn.messages.has(id)) {
+    id = `${id}-${turn.messages.size}`;
   }
   const item: Extract<TimelineItem, { type: "message" }> = {
     type: "message",
@@ -156,6 +178,7 @@ function appendMessage(
   };
   turn.messages.set(id, { role, text, item });
   turn.items.push(item);
+  if (role === "assistant") turn.breakAssistantMessage = false;
 }
 
 function freezeTurn(turn: MutableTurn): TurnSnapshot {
@@ -177,11 +200,35 @@ function freezeTurn(turn: MutableTurn): TurnSnapshot {
 }
 
 function publicToolTitle(update: JsonObject): string {
-  const title = stringField(update.title);
-  if (title) return title;
   const tool = toolMeta(update);
   if (tool?.name) return tool.name;
+  const title = stringField(update.title);
+  if (title) return title;
   return "工具";
+}
+
+export function publicToolInput(update: Record<string, unknown>): string | null {
+  const raw = "rawInput" in update ? update.rawInput : undefined;
+  if (typeof raw === "string" && raw.trim()) return raw;
+  if (!isObject(raw)) return null;
+  if (typeof raw.command === "string" && raw.command.trim()) return raw.command;
+  const fields: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (key === "variant" || value == null) continue;
+    fields[key] = value;
+  }
+  const keys = Object.keys(fields);
+  if (keys.length === 0) return null;
+  if (keys.length === 1 && typeof fields[keys[0]!] === "string") {
+    return String(fields[keys[0]!]);
+  }
+  return JSON.stringify(fields, null, 2);
+}
+
+function clipStoredText(text: string | null): string | null {
+  if (!text) return null;
+  if (text.length <= MAX_STORED_COMMAND_OUTPUT) return text;
+  return text.slice(-MAX_STORED_COMMAND_OUTPUT);
 }
 
 function publicToolKind(update: JsonObject): string {

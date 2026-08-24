@@ -100,6 +100,63 @@ test("parses updates.jsonl into chat items and hides thoughts", () => {
   );
 });
 
+test("starts a new assistant bubble after tools even without message ids", () => {
+  const source = [
+    updateLine("user_message_chunk", { content: { type: "text", text: "do it" } }),
+    updateLine("agent_message_chunk", { content: { type: "text", text: "first " } }),
+    updateLine("agent_message_chunk", { content: { type: "text", text: "paragraph" } }),
+    updateLine("tool_call", {
+      toolCallId: "c1",
+      title: "ls",
+      kind: "execute",
+      status: "pending",
+      rawInput: { command: "ls -la src" },
+    }),
+    updateLine("tool_call_update", {
+      toolCallId: "c1",
+      status: "completed",
+      content: [{ type: "content", content: { type: "text", text: "app.js\n" } }],
+    }),
+    updateLine("agent_message_chunk", { content: { type: "text", text: "second paragraph" } }),
+  ].join("\n");
+
+  const turns = parseUpdatesJsonl(source);
+  assert.deepEqual(turns[0]?.items.map((item) => item.type), ["message", "message", "command", "message"]);
+  assert.equal(textOf(turns[0]?.items[1]), "first paragraph");
+  const tool = turns[0]?.items[2];
+  assert.equal(tool && tool.type === "command" ? tool.input : null, "ls -la src");
+  assert.equal(tool && tool.type === "command" ? tool.output : null, "app.js\n");
+  assert.equal(textOf(turns[0]?.items[3]), "second paragraph");
+});
+
+test("starts a new assistant bubble after hidden thoughts", () => {
+  const source = [
+    updateLine("user_message_chunk", { content: { type: "text", text: "do it" } }),
+    updateLine("agent_message_chunk", { content: { type: "text", text: "first reply" } }),
+    updateLine("agent_thought_chunk", { content: { type: "text", text: "hidden thought" } }),
+    updateLine("agent_message_chunk", { content: { type: "text", text: "second reply" } }),
+  ].join("\n");
+
+  const turns = parseUpdatesJsonl(source);
+  assert.deepEqual(turns[0]?.items.map((item) => item.type), ["message", "message", "message"]);
+  assert.equal(textOf(turns[0]?.items[1]), "first reply");
+  assert.equal(textOf(turns[0]?.items[2]), "second reply");
+});
+
+function updateLine(sessionUpdate: string, update: Record<string, unknown>): string {
+  return JSON.stringify({
+    method: "session/update",
+    params: {
+      update: { sessionUpdate, ...update },
+      _meta: { promptId: "turn-1" },
+    },
+  });
+}
+
+function textOf(item: { type: string; text?: string } | undefined): string {
+  return item && item.type === "message" ? item.text ?? "" : "";
+}
+
 async function writeSummary(
   directory: string,
   id: string,
