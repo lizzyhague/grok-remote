@@ -6,6 +6,7 @@ const SIDEBAR_COLLAPSED_KEY = "grok-remote.sidebar-collapsed";
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_COMMAND_OUTPUT = 100_000;
 const TOOL_TITLE_LIMIT = 48;
+const WAITING_APPROVAL_NOTICE = "正在等待审批。";
 /** 输入框失焦后稍等再点亮 rewind / always-approve，避免同一下既失焦又点到确认。 */
 const COMPOSER_CONFIRM_UNLOCK_MS = 300;
 
@@ -309,6 +310,8 @@ function applyOpenedSession(opened) {
   renderHistory(Array.isArray(opened.tasks) ? opened.tasks : [], opened.hasOlder === true);
   elements.approvalList.replaceChildren();
   for (const approval of opened.pendingApprovals ?? []) addApproval(approval);
+  hideNotice();
+  syncApprovalNotice();
   const resumeAfterSeq = opened.resumeAfterSeq ?? 0;
   if (resumeAfterSeq < state.lastSeq || state.taskRunning) {
     void request("events.resume", { afterSeq: resumeAfterSeq }).then((data) => {
@@ -399,6 +402,7 @@ function resetCurrentSession() {
   clearTimeline();
   showEmpty("选择以前的会话，或者新建一个会话。");
   elements.approvalList.replaceChildren();
+  hideNotice();
   updateControls();
 }
 
@@ -565,23 +569,27 @@ function handleServerEvent(event) {
       break;
     case "approval.requested":
       addApproval(event);
+      syncApprovalNotice();
       break;
     case "approval.resolved":
       removeApproval(event.approvalId);
+      syncApprovalNotice();
       if (state.taskRunning) showThinking();
       break;
     case "turn.status":
       if (event.status === "running") {
         state.taskRunning = true;
+        syncApprovalNotice();
         showThinking();
       }
       if (event.status === "waiting_for_permission") {
         hideThinking();
-        showNotice("正在等待审批。");
+        showNotice(WAITING_APPROVAL_NOTICE);
       }
       if (event.status === "completed" || event.status === "interrupted" || event.status === "failed") {
         state.taskRunning = false;
         hideThinking();
+        syncApprovalNotice();
         if (event.status !== "completed") {
           addTaskNote(event.reason || (event.status === "interrupted" ? "本轮已中止。" : "本轮失败。"));
         }
@@ -1072,6 +1080,7 @@ async function answerApproval(card, approvalId, decision, optionId) {
   try {
     await request("approval.answer", { approvalId, decision, optionId });
     removeApproval(approvalId);
+    syncApprovalNotice();
     if (state.taskRunning) showThinking();
   } catch (error) {
     buttons.forEach((button) => { button.disabled = false; });
@@ -1291,9 +1300,25 @@ function setConnectionStatus(status, text) {
   elements.connectionStatus.textContent = text;
 }
 
+function syncApprovalNotice() {
+  if (elements.approvalList.children.length > 0) {
+    showNotice(WAITING_APPROVAL_NOTICE);
+    return;
+  }
+  hideApprovalNotice();
+}
+
+function hideApprovalNotice() {
+  if (elements.noticeText.textContent === WAITING_APPROVAL_NOTICE) hideNotice();
+}
+
 function showNotice(text) {
   elements.notice.hidden = !text;
   elements.noticeText.textContent = text ?? "";
+}
+
+function hideNotice() {
+  showNotice("");
 }
 
 function closeSocket() {
