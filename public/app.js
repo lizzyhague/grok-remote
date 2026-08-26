@@ -66,6 +66,7 @@ const state = {
   mobileSidebarOpen: false,
   composerLocksConfirms: false,
   composerFocusTimer: null,
+  pendingUserMessages: new Map(),
   assistantStreams: new Map(),
   liveAssistant: null,
   commands: new Map(),
@@ -483,17 +484,26 @@ async function sendOrStop() {
 
 async function sendMessage(text) {
   const clientMessageId = crypto.randomUUID();
+  const pendingMessage = addMessage("user", text, `pending-${clientMessageId}`, false);
+  state.pendingUserMessages.set(clientMessageId, { element: pendingMessage, text });
   state.taskRunning = true;
   updateControls();
   showThinking();
   try {
     const result = await request("message.send", { text, clientMessageId });
-    elements.messageInput.value = "";
-    resizeComposer();
+    if (elements.messageInput.value.trim() === text) {
+      elements.messageInput.value = "";
+      resizeComposer();
+    }
     if (result?.sessionId && result.sessionId !== state.currentSessionId) {
       state.currentSessionId = result.sessionId;
     }
   } catch (error) {
+    const unconfirmedMessage = state.pendingUserMessages.get(clientMessageId);
+    if (unconfirmedMessage) {
+      unconfirmedMessage.element.remove();
+      state.pendingUserMessages.delete(clientMessageId);
+    }
     state.taskRunning = false;
     hideThinking();
     showNotice(errorMessage(error));
@@ -540,7 +550,25 @@ function handleServerEvent(event) {
     case "message.user":
       hideThinking();
       hideEmpty();
-      addMessage("user", event.text ?? "", event.itemId, false);
+      let pendingClientMessageId = typeof event.clientMessageId === "string"
+        ? event.clientMessageId
+        : null;
+      let pendingUserMessage = pendingClientMessageId
+        ? state.pendingUserMessages.get(pendingClientMessageId)
+        : null;
+      if (!pendingUserMessage && !pendingClientMessageId && state.pendingUserMessages.size === 1) {
+        const [fallbackClientMessageId, fallbackMessage] = state.pendingUserMessages.entries().next().value;
+        if (fallbackMessage.text === (event.text ?? "")) {
+          pendingClientMessageId = fallbackClientMessageId;
+          pendingUserMessage = fallbackMessage;
+        }
+      }
+      if (pendingUserMessage) {
+        pendingUserMessage.element.dataset.itemId = event.itemId ?? "";
+        state.pendingUserMessages.delete(pendingClientMessageId);
+      } else {
+        addMessage("user", event.text ?? "", event.itemId, false);
+      }
       if (state.taskRunning) showThinking();
       break;
     case "message.delta":
@@ -1233,6 +1261,7 @@ function clearTimeline() {
     if (stream.frame !== null) cancelAnimationFrame(stream.frame);
   }
   state.assistantStreams.clear();
+  state.pendingUserMessages.clear();
   state.liveAssistant = null;
   state.commands.clear();
   state.slashMenu?.close();

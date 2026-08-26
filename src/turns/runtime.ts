@@ -519,6 +519,7 @@ export class TurnRuntime {
               type: "message.user",
               turnId: item.turnId,
               itemId: `${item.turnId}-user`,
+              clientMessageId: item.clientMessageId,
               text: item.text,
             });
             const result = await worker.client.sessionPrompt(grokSessionId, item.text);
@@ -659,7 +660,7 @@ export class TurnRuntime {
       approvalId: randomUUID(),
       sessionId: worker.sessionKey,
       kind: human ? "user_input" : permissionKind(request.toolCall),
-      reason: permissionReason(request.toolCall),
+      reason: permissionReason(request.toolCall, human),
       options: request.options.map((option) => ({
         optionId: option.optionId,
         name: option.name,
@@ -847,8 +848,28 @@ function toolContentText(content: unknown): string {
   }).join("");
 }
 
+const HUMAN_TOOL_NAMES = new Set([
+  "ask_user_question",
+  "ask_user",
+  "request_user_input",
+  "elicitation",
+  "mcp_elicitation",
+  "captcha",
+  "verify",
+  "login",
+]);
+const MAX_APPROVAL_REASON_LENGTH = 240;
+
 function isHumanRequired(toolCall: Record<string, unknown>): boolean {
-  return /ask_user_question|elicitation|captcha|verify|login/i.test(JSON.stringify(toolCall));
+  const meta = objectField(toolCall._meta);
+  const tool = objectField(meta["x.ai/tool"]);
+  const candidates = [toolCall.name, toolCall.toolName, tool.name, toolCall.title];
+  return candidates.some((candidate) => {
+    if (typeof candidate !== "string") return false;
+    const normalized = candidate.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return HUMAN_TOOL_NAMES.has(normalized);
+  });
 }
 
 function permissionKind(toolCall: Record<string, unknown>): ApprovalView["kind"] {
@@ -869,8 +890,43 @@ function publicToolPayload(tool: PublicToolView): Record<string, unknown> {
   };
 }
 
-function permissionReason(toolCall: Record<string, unknown>): string | null {
-  return typeof toolCall.title === "string" && toolCall.title ? toolCall.title : null;
+function permissionReason(toolCall: Record<string, unknown>, human: boolean): string | null {
+  const rawInput = objectField(toolCall.rawInput);
+  const meta = objectField(toolCall._meta);
+  const tool = objectField(meta["x.ai/tool"]);
+  const toolInput = objectField(tool.input);
+  const description = firstString(
+    rawInput.description,
+    toolInput.description,
+    toolContentText(toolCall.content),
+  );
+  if (description) return clipApprovalReason(description);
+  if (human) return null;
+
+  const kind = permissionKind(toolCall);
+  if (kind === "command") return "Grok 请求执行一条命令。";
+  if (kind === "file_change") return "Grok 请求修改文件。";
+  const title = firstString(toolCall.title);
+  return title ? clipApprovalReason(title) : "Grok 请求执行一项操作。";
+}
+
+function objectField(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function clipApprovalReason(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= MAX_APPROVAL_REASON_LENGTH) return normalized;
+  return `${normalized.slice(0, MAX_APPROVAL_REASON_LENGTH - 1)}…`;
 }
 
 function itemStatus(event: Record<string, unknown>): string | null {
