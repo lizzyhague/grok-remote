@@ -47,3 +47,19 @@ test("keeps html as text and rejects unsafe links", () => {
   assert.equal(sanitizeHref("//example.com"), null);
   assert.equal(sanitizeHref("https://example.com"), "https://example.com");
 });
+
+test("leaves underscores as plain text", () => {
+  const tokens = tokenizeInline("foo_bar and __not_bold__ and _not_italic_");
+  assert.equal(tokens.length, 1);
+  assert.equal(tokens[0]?.type, "text");
+  assert.equal(tokens[0]?.text, "foo_bar and __not_bold__ and _not_italic_");
+
+  const starred = tokenizeInline("**bold** and *italic*");
+  assert.equal(starred[0]?.type, "strong");
+  assert.equal(starred[2]?.type, "emphasis");
+
+  const blocks = parseMarkdown("___");
+  assert.equal(blocks[0]?.type, "paragraph");
+  assert.equal(parseMarkdown("---")[0]?.type, "rule");
+  assert.equal(parseMarkdown("***")[0]?.type, "rule");
+});
