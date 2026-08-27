@@ -8,25 +8,29 @@ test("parses the grok-remote browser protocol", () => {
     type: "sessions.list",
     requestId: "sessions-1",
     projectId: "projects/demo",
+    view: "archived",
     searchTerm: "测试",
   })), {
     type: "sessions.list",
     requestId: "sessions-1",
     projectId: "projects/demo",
     cursor: null,
+    view: "archived",
     searchTerm: "测试",
   });
 
   assert.deepEqual(parseBrowserRequest(JSON.stringify({
-    type: "sessions.delete",
+    type: "sessions.mutate",
     requestId: "sessions-2",
     projectId: "projects/demo",
     sessionIds: ["session-1", "session-1", "session-2"],
+    action: "trash-active",
   })), {
-    type: "sessions.delete",
+    type: "sessions.mutate",
     requestId: "sessions-2",
     projectId: "projects/demo",
     sessionIds: ["session-1", "session-2"],
+    action: "trash-active",
   });
 
   assert.deepEqual(parseBrowserRequest(JSON.stringify({

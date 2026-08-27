@@ -194,6 +194,18 @@ export class RemoteSessionStore {
     await rm(this.sessionDir(sessionId), { recursive: true, force: true });
   }
 
+  async deleteUnboundPending(): Promise<number> {
+    const metas = await this.listMeta();
+    let deleted = 0;
+    for (const meta of metas) {
+      if (!meta.id.startsWith(PENDING_SESSION_PREFIX)) continue;
+      if (meta.grokSessionId) continue;
+      await this.delete(meta.id);
+      deleted += 1;
+    }
+    return deleted;
+  }
+
   async #nextSeq(sessionId: string): Promise<number> {
     const cached = this.#seqs.get(sessionId);
     if (cached !== undefined) return cached + 1;

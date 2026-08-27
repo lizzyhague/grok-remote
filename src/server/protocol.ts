@@ -1,4 +1,13 @@
 import { canonicalCommandName, type CommandName } from "../commands/catalog.ts";
+import type { SessionView } from "../sessions/types.ts";
+
+export type BrowserSessionView = SessionView;
+export type BrowserSessionMutationAction =
+  | "archive"
+  | "unarchive"
+  | "trash-active"
+  | "trash-archived"
+  | "restore-trash";
 
 /**
  * WebSocket 帧上限。必须明显大于单条消息正文上限，否则超长正文会在 ws 层
@@ -19,13 +28,15 @@ export type BrowserRequest =
     requestId: string;
     projectId: string;
     cursor: string | null;
+    view: BrowserSessionView;
     searchTerm: string | null;
   }
   | {
-    type: "sessions.delete";
+    type: "sessions.mutate";
     requestId: string;
     projectId: string;
     sessionIds: string[];
+    action: BrowserSessionMutationAction;
   }
   | { type: "session.start"; requestId: string; projectId: string }
   | {
@@ -139,14 +150,16 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         cursor: value.cursor === undefined || value.cursor === null
           ? null
           : requireString(value.cursor, "分页标记", requestId, 4_096),
+        view: readSessionView(value.view, requestId),
         searchTerm: readOptionalString(value.searchTerm, "搜索文字", requestId, 256),
       };
-    case "sessions.delete":
+    case "sessions.mutate":
       return {
-        type: "sessions.delete",
+        type: "sessions.mutate",
         requestId,
         projectId: requireString(value.projectId, "项目 ID", requestId, 1_024),
         sessionIds: requireStringArray(value.sessionIds, "会话 ID", requestId, 100, 1_024),
+        action: requireSessionMutationAction(value.action, requestId),
       };
     case "session.start":
       return {
@@ -212,6 +225,26 @@ export function parseBrowserRequest(source: string): BrowserRequest {
     default:
       throw new ProtocolError("unknown_message_type", "不支持这种消息类型。", requestId);
   }
+}
+
+function readSessionView(value: unknown, requestId: string): BrowserSessionView {
+  if (value === undefined || value === null) return "active";
+  if (value === "active" || value === "archived" || value === "trash") return value;
+  throw new ProtocolError("invalid_field", "会话列表类型无法识别。", requestId);
+}
+
+function requireSessionMutationAction(
+  value: unknown,
+  requestId: string,
+): BrowserSessionMutationAction {
+  if (
+    value === "archive" || value === "unarchive" ||
+    value === "trash-active" || value === "trash-archived" ||
+    value === "restore-trash"
+  ) {
+    return value;
+  }
+  throw new ProtocolError("invalid_field", "会话整理操作无法识别。", requestId);
 }
 
 function requireCommand(value: unknown, requestId: string): CommandName {

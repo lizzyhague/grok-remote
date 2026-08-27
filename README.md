@@ -36,7 +36,7 @@
 | `GROK_REMOTE_ALLOWED_ORIGINS` | 额外允许的 Origin，逗号分隔 |
 | `GROK_REMOTE_PROJECTS_CONFIG` | 项目白名单文件路径 |
 | `GROK_BIN` | `grok` 可执行文件；默认从 `PATH` 查找 |
-| `GROK_REMOTE_STATE_DIR` | 可选。本应用事件日志和权限模式；默认 `~/.grok-remote` |
+| `GROK_REMOTE_STATE_DIR` | 可选。本应用事件日志、权限模式、归档和回收站标记；默认 `~/.grok-remote` |
 | `GROK_REMOTE_MAX_WORKERS` | 可选。同时活动的 Worker 上限，默认 2；到限拒绝新 Worker |
 | `GROK_REMOTE_MIN_FREE_MEMORY_MB` | 可选。启动 Worker 前最低可用内存，默认 512 |
 
@@ -55,10 +55,13 @@ GROK_REMOTE_TOKEN="$(openssl rand -hex 32)" \
 
 健康检查：`http://127.0.0.1:8788/healthz`
 
+## 会话整理
+
+归档和回收站都是本应用自己的标记，不改 Grok CLI 的会话文件。侧栏有最近会话、已归档、回收站三个视图，交互与 Codex Remote 一致。回收站里的会话 30 天后自动永久删除。没发过第一条消息的空会话刷新后不会留在列表里。
+
 ## 第一版明确不做
 
 - 文件上传
-- 会话归档 / 回收站（删除就是永久删除）
 - 每个会话常驻一个 Grok 进程
 - 全站共用一个长驻 `grok agent`
 - 浏览器直连 `grok agent serve`

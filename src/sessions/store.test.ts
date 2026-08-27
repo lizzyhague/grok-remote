@@ -37,6 +37,18 @@ test("keeps the grok session id on session.bound events", async (context) => {
   assert.equal(stored.event.type, "session.bound");
 });
 
+test("deletes unbound pending sessions and keeps bound ones", async (context) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "grok-remote-pending-gc-"));
+  context.after(() => rm(dir, { recursive: true, force: true }));
+  const store = new RemoteSessionStore(dir);
+  const pending = await store.createPending("projects/demo");
+  const boundPending = await store.createPending("projects/demo");
+  await store.bindGrokSession(boundPending.id, "grok-session-keep");
+  assert.equal(await store.deleteUnboundPending(), 1);
+  assert.equal(await store.readMeta(pending.id), null);
+  assert.equal((await store.readMeta("grok-session-keep"))?.id, "grok-session-keep");
+});
+
 test("assigns unique increasing seqs when appends overlap", async (context) => {
   const dir = await mkdtemp(path.join(tmpdir(), "grok-remote-seq-"));
   context.after(() => rm(dir, { recursive: true, force: true }));

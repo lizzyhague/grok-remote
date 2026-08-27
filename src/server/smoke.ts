@@ -8,6 +8,7 @@ import WebSocket from "ws";
 import { CommandRunner } from "../commands/runner.ts";
 import { ProjectCatalog } from "../projects/catalog.ts";
 import { GrokSessionDisk } from "../sessions/disk.ts";
+import { SessionLayoutStore } from "../sessions/layout-store.ts";
 import { SessionService } from "../sessions/service.ts";
 import { RemoteSessionStore } from "../sessions/store.ts";
 import { TurnRuntime } from "../turns/runtime.ts";
@@ -28,7 +29,8 @@ async function main(): Promise<void> {
   const projects = await ProjectCatalog.fromConfigFile(configPath);
   const disk = new GrokSessionDisk(path.join(root, "grok-home"));
   const store = new RemoteSessionStore(path.join(root, "state"));
-  const sessions = new SessionService(projects, disk, store);
+  const layout = await SessionLayoutStore.open(path.join(root, "layout.json"));
+  const sessions = new SessionService(projects, disk, store, layout);
   const presence = new PresenceTracker();
   const turns = new TurnRuntime({
     store,

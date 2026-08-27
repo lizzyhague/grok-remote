@@ -5,6 +5,10 @@ import { pathToFileURL } from "node:url";
 import { CommandRunner } from "../commands/runner.ts";
 import { ProjectCatalog } from "../projects/catalog.ts";
 import { GrokSessionDisk, resolveGrokHome } from "../sessions/disk.ts";
+import {
+  resolveLayoutStatePath,
+  SessionLayoutStore,
+} from "../sessions/layout-store.ts";
 import { SessionService } from "../sessions/service.ts";
 import { RemoteSessionStore, resolveStateDir } from "../sessions/store.ts";
 import { PresenceTracker } from "./presence.ts";
@@ -15,6 +19,8 @@ import {
   DEFAULT_MAX_WORKERS,
   DEFAULT_MIN_FREE_MEMORY_BYTES,
 } from "../worker/process.ts";
+
+const TRASH_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 
 export async function main(): Promise<void> {
   const token = process.env.GROK_REMOTE_TOKEN;
@@ -30,7 +36,7 @@ export async function main(): Promise<void> {
   const projects = await ProjectCatalog.fromConfigFile(configPath);
   const disk = new GrokSessionDisk(resolveGrokHome());
   const store = new RemoteSessionStore(resolveStateDir());
-  const sessions = new SessionService(projects, disk, store);
+  const layout = await SessionLayoutStore.open(resolveLayoutStatePath());
   const presence = new PresenceTracker();
   const turns = new TurnRuntime({
     store,
@@ -43,8 +49,13 @@ export async function main(): Promise<void> {
       DEFAULT_MIN_FREE_MEMORY_BYTES / 1_048_576,
     ) * 1_048_576,
   });
+  const sessions = new SessionService(projects, disk, store, layout, {
+    isRunning: (sessionId) => turns.isBusy(sessionId),
+  });
+  await sessions.discardUnboundPending();
   await turns.markOrphanedTurnsInterrupted();
   const commands = new CommandRunner(turns, disk, store);
+  let cleanupTimer: NodeJS.Timeout | null = null;
   const remote = new RemoteWebSocketServer({
     token,
     allowedOrigins: readAllowedOrigins(process.env.GROK_REMOTE_ALLOWED_ORIGINS),
@@ -59,13 +70,29 @@ export async function main(): Promise<void> {
   });
 
   try {
+    await cleanExpiredTrash(sessions);
+    cleanupTimer = setInterval(() => {
+      void cleanExpiredTrash(sessions);
+    }, TRASH_CLEANUP_INTERVAL_MS);
+    cleanupTimer.unref();
     const address = await remote.listen(port);
     console.log(`Grok Remote 正在监听 http://${address.host}:${address.port}/`);
     await waitForShutdownSignal();
   } finally {
+    if (cleanupTimer) clearInterval(cleanupTimer);
     await remote.close();
     await turns.dispose();
     presence.dispose();
+  }
+}
+
+async function cleanExpiredTrash(sessions: SessionService): Promise<void> {
+  const result = await sessions.purgeExpired();
+  if (result.deleted > 0) {
+    console.log(`回收站自动清除了 ${result.deleted} 个过期会话。`);
+  }
+  for (const failure of result.failed) {
+    console.error(`回收站无法清除会话 ${failure.sessionId}：${failure.message}`);
   }
 }
 

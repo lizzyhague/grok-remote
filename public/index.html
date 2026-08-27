@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#171a21">
     <meta name="color-scheme" content="dark light">
     <meta name="description" content="通过私人网络使用主机上的 Grok">
-    <link rel="manifest" href="/manifest.webmanifest?v=10">
+    <link rel="manifest" href="/manifest.webmanifest?v=11">
     <link rel="icon" href="/icon.svg?v=10" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=10">
+    <link rel="stylesheet" href="/styles.css?v=11">
     <title>Grok Remote</title>
   </head>
   <body>
@@ -45,10 +45,28 @@
         </label>
 
         <div class="session-list-heading">
-          <strong>最近会话</strong>
+          <button id="session-view-back-button" class="quiet small" type="button" hidden>← 会话</button>
+          <strong id="session-view-title">最近会话</strong>
+          <button id="select-sessions-button" class="quiet small" type="button">选择</button>
         </div>
+
+        <div id="selection-heading" class="selection-heading" hidden>
+          <button id="cancel-selection-button" class="quiet small" type="button">取消</button>
+          <strong id="selection-count">已选择 0 项</strong>
+        </div>
+
         <div id="session-list" class="session-list" role="list" aria-live="polite"></div>
         <button id="load-more-sessions-button" class="quiet load-more-sessions" type="button" hidden>加载更多</button>
+
+        <nav id="session-destinations" class="session-destinations" aria-label="会话分类">
+          <button id="archived-sessions-button" class="quiet" type="button">已归档</button>
+          <button id="trash-sessions-button" class="quiet" type="button">回收站</button>
+        </nav>
+
+        <div id="bulk-session-actions" class="bulk-session-actions" hidden>
+          <button id="bulk-primary-button" type="button">归档</button>
+          <button id="bulk-trash-button" class="danger" type="button">移入回收站</button>
+        </div>
       </aside>
 
       <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭会话列表" tabindex="-1"></button>
@@ -82,6 +100,7 @@
 
         <div id="notice" class="notice" role="status" hidden>
           <span id="notice-text"></span>
+          <button id="notice-action-button" class="quiet small" type="button" hidden></button>
         </div>
 
         <form id="composer" class="composer">
@@ -120,8 +139,8 @@
       </section>
     </div>
 
-    <script src="/boot.js?v=10"></script>
+    <script src="/boot.js?v=11"></script>
     <script type="module" src="/slash-menu.js?v=10"></script>
-    <script type="module" src="/app.js?v=10"></script>
+    <script type="module" src="/app.js?v=11"></script>
   </body>
 </html>

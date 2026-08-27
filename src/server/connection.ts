@@ -12,7 +12,13 @@ import {
   type BrowserRequest,
 } from "./protocol.ts";
 import { ProjectTaskLocks } from "./project-locks.ts";
-import type { OpenedSession, SessionChangeEvent, SessionPage } from "../sessions/service.ts";
+import type {
+  OpenedSession,
+  SessionChangeEvent,
+  SessionMutationResult,
+  SessionPage,
+} from "../sessions/service.ts";
+import type { LayoutOrigin } from "../sessions/layout-store.ts";
 import type { TurnSnapshot } from "../sessions/types.ts";
 import type { ApprovalView, BrowserTurnEvent } from "../turns/runtime.ts";
 
@@ -28,14 +34,19 @@ export interface ProjectsApi {
 export interface SessionsApi {
   list(projectId: string, options?: {
     cursor?: string | null;
+    view?: "active" | "archived" | "trash";
     searchTerm?: string | null;
   }): Promise<SessionPage>;
   start(projectId: string): Promise<OpenedSession>;
   open(projectId: string, sessionId: string): Promise<OpenedSession>;
-  delete(projectId: string, sessionIds: string[]): Promise<{
-    succeeded: string[];
-    failed: Array<{ sessionId: string; message: string }>;
-  }>;
+  archive(projectId: string, sessionIds: string[]): Promise<SessionMutationResult>;
+  unarchive(projectId: string, sessionIds: string[]): Promise<SessionMutationResult>;
+  moveToTrash(
+    projectId: string,
+    sessionIds: string[],
+    origin: LayoutOrigin,
+  ): Promise<SessionMutationResult>;
+  restoreTrash(projectId: string, sessionIds: string[]): Promise<SessionMutationResult>;
   onChange?(listener: (event: SessionChangeEvent) => void): () => void;
 }
 
@@ -214,10 +225,11 @@ export class BrowserConnection {
       case "sessions.list":
         return await this.#services.sessions.list(request.projectId, {
           cursor: request.cursor,
+          view: request.view,
           searchTerm: request.searchTerm,
         });
-      case "sessions.delete":
-        return this.#deleteSessions(request.projectId, request.sessionIds);
+      case "sessions.mutate":
+        return this.#mutateSessions(request.projectId, request.sessionIds, request.action);
       case "session.start":
         return this.#open(request.projectId, await this.#services.sessions.start(request.projectId));
       case "session.resume":
@@ -250,13 +262,27 @@ export class BrowserConnection {
     }
   }
 
-  async #deleteSessions(projectId: string, sessionIds: string[]): Promise<unknown> {
-    if (!this.#services.locks.acquire(projectId, this.#id, sessionIds[0] ?? "delete")) {
-      throw new BrowserRequestError("project_busy", "这个项目正在执行任务，暂时不能删除会话。");
+  async #mutateSessions(
+    projectId: string,
+    sessionIds: string[],
+    action: "archive" | "unarchive" | "trash-active" | "trash-archived" | "restore-trash",
+  ): Promise<SessionMutationResult> {
+    if (!this.#services.locks.acquire(projectId, this.#id, sessionIds[0] ?? "mutate")) {
+      throw new BrowserRequestError("project_busy", "这个项目正在执行任务，暂时不能整理会话。");
     }
     try {
-      const result = await this.#services.sessions.delete(projectId, sessionIds);
-      if (this.#sessionId && result.succeeded.includes(this.#sessionId)) {
+      const result = action === "archive"
+        ? await this.#services.sessions.archive(projectId, sessionIds)
+        : action === "unarchive"
+        ? await this.#services.sessions.unarchive(projectId, sessionIds)
+        : action === "trash-active"
+        ? await this.#services.sessions.moveToTrash(projectId, sessionIds, "active")
+        : action === "trash-archived"
+        ? await this.#services.sessions.moveToTrash(projectId, sessionIds, "archived")
+        : await this.#services.sessions.restoreTrash(projectId, sessionIds);
+      const removesOpenSession = action === "archive" ||
+        action === "trash-active" || action === "trash-archived";
+      if (removesOpenSession && this.#sessionId && result.succeeded.includes(this.#sessionId)) {
         this.#clearSession();
       }
       return result;

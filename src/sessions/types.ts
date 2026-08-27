@@ -1,5 +1,7 @@
 export type SessionState = "not_loaded" | "idle" | "active" | "error";
 
+export type SessionView = "active" | "archived" | "trash";
+
 export type SessionSummary = {
   id: string;
   title: string;
@@ -8,6 +10,8 @@ export type SessionSummary = {
   updatedAt: number;
   state: SessionState;
   pending: boolean;
+  deletedAt: number | null;
+  purgeAt: number | null;
 };
 
 export type SessionPage = {

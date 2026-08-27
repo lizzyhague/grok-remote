@@ -119,6 +119,12 @@ export class TurnRuntime {
     return this.#workers.get(sessionId)?.currentTurnId ?? null;
   }
 
+  isBusy(sessionId: string): boolean {
+    const worker = this.#workers.get(sessionId);
+    if (!worker) return false;
+    return worker.busy || worker.queue.length > 0 || worker.currentTurnId !== null;
+  }
+
   pendingApprovals(sessionId: string): ApprovalView[] {
     return [...this.#approvals.values()]
       .filter((entry) => entry.pending.approval.sessionId === sessionId)

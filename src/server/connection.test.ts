@@ -5,6 +5,7 @@ import { CommandRunner } from "../commands/runner.ts";
 import { GrokSessionDisk } from "../sessions/disk.ts";
 import { RemoteSessionStore } from "../sessions/store.ts";
 import type { BrowserTurnEvent } from "../turns/runtime.ts";
+import type { SessionChangeEvent } from "../sessions/service.ts";
 import {
   BrowserConnection,
   type BrowserConnectionServices,
@@ -66,6 +67,82 @@ test("redacts missing authentication", async () => {
   const message = socket.messages[0] as { error?: { code: string } };
   assert.equal(message.error?.code, "not_authenticated");
   await connection.disconnect();
+  services.presence.dispose();
+});
+
+test("archives an open session and notifies every connected device", async () => {
+  const turns = fakeTurns();
+  const listeners: Array<(event: SessionChangeEvent) => void> = [];
+  const services = makeServices(turns);
+  services.sessions = {
+    ...services.sessions,
+    async archive(_projectId, sessionIds) {
+      const event = { projectId: "projects/demo", sessionIds, change: "archive" as const };
+      for (const listener of listeners) listener(event);
+      return { succeeded: sessionIds, failed: [] };
+    },
+    onChange(listener) {
+      listeners.push(listener);
+      return () => {
+        const index = listeners.indexOf(listener);
+        if (index >= 0) listeners.splice(index, 1);
+      };
+    },
+  };
+  const firstSocket = new FakeSocket();
+  const secondSocket = new FakeSocket();
+  const first = new BrowserConnection("first", firstSocket, "secret", services);
+  const second = new BrowserConnection("second", secondSocket, "secret", services);
+
+  first.receiveText(JSON.stringify({ type: "auth", requestId: "a1", token: "secret" }));
+  second.receiveText(JSON.stringify({ type: "auth", requestId: "a2", token: "secret" }));
+  first.receiveText(JSON.stringify({
+    type: "session.start",
+    requestId: "s1",
+    projectId: "projects/demo",
+  }));
+  await first.whenIdle();
+  await second.whenIdle();
+
+  first.receiveText(JSON.stringify({
+    type: "sessions.mutate",
+    requestId: "m1",
+    projectId: "projects/demo",
+    sessionIds: ["pending-1"],
+    action: "archive",
+  }));
+  await first.whenIdle();
+  await second.whenIdle();
+
+  const firstEvent = firstSocket.messages.find((item) =>
+    typeof item === "object" && item !== null &&
+    (item as { type?: string }).type === "event" &&
+    (item as { event?: { type?: string } }).event?.type === "session.changed"
+  ) as { event: { change: string; sessionIds: string[] } };
+  const secondEvent = secondSocket.messages.find((item) =>
+    typeof item === "object" && item !== null &&
+    (item as { type?: string }).type === "event" &&
+    (item as { event?: { type?: string } }).event?.type === "session.changed"
+  ) as { event: { change: string; sessionIds: string[] } };
+  assert.equal(firstEvent.event.change, "archive");
+  assert.deepEqual(firstEvent.event.sessionIds, ["pending-1"]);
+  assert.equal(secondEvent.event.change, "archive");
+
+  first.receiveText(JSON.stringify({
+    type: "message.send",
+    requestId: "after-archive",
+    text: "不应发送",
+    clientMessageId: "c-after",
+  }));
+  await first.whenIdle();
+  const response = firstSocket.messages.find((item) =>
+    typeof item === "object" && item !== null &&
+    (item as { requestId?: string }).requestId === "after-archive"
+  ) as { ok: boolean };
+  assert.equal(response.ok, false);
+
+  await first.disconnect();
+  await second.disconnect();
   services.presence.dispose();
 });
 
@@ -147,6 +224,8 @@ function makeServices(turns: TurnApi): BrowserConnectionServices {
       updatedAt: 1,
       state: "idle" as const,
       pending: true,
+      deletedAt: null,
+      purgeAt: null,
     },
     tasks: [],
     older: [],
@@ -171,7 +250,16 @@ function makeServices(turns: TurnApi): BrowserConnectionServices {
       async open() {
         return opened;
       },
-      async delete(_projectId, sessionIds) {
+      async archive(_projectId, sessionIds) {
+        return { succeeded: sessionIds, failed: [] };
+      },
+      async unarchive(_projectId, sessionIds) {
+        return { succeeded: sessionIds, failed: [] };
+      },
+      async moveToTrash(_projectId, sessionIds) {
+        return { succeeded: sessionIds, failed: [] };
+      },
+      async restoreTrash(_projectId, sessionIds) {
         return { succeeded: sessionIds, failed: [] };
       },
     },

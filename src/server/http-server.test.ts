@@ -137,7 +137,16 @@ function emptyServices(): { services: BrowserConnectionServices; turns: TurnRunt
       async open(): Promise<OpenedSession> {
         throw new Error("未使用");
       },
-      async delete(_projectId: string, sessionIds: string[]) {
+      async archive(_projectId: string, sessionIds: string[]) {
+        return { succeeded: sessionIds, failed: [] };
+      },
+      async unarchive(_projectId: string, sessionIds: string[]) {
+        return { succeeded: sessionIds, failed: [] };
+      },
+      async moveToTrash(_projectId: string, sessionIds: string[]) {
+        return { succeeded: sessionIds, failed: [] };
+      },
+      async restoreTrash(_projectId: string, sessionIds: string[]) {
         return { succeeded: sessionIds, failed: [] };
       },
     },
