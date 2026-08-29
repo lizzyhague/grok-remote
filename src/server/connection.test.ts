@@ -58,6 +58,54 @@ test("accepts a message and returns accepted without waiting for Grok", async ()
   services.presence.dispose();
 });
 
+test("creates upload tickets from the authenticated open session binding", async () => {
+  const services = makeServices(fakeTurns());
+  let received: unknown;
+  services.uploads = {
+    async createTicket(input) {
+      received = input;
+      return {
+        ticket: "one-time-ticket",
+        expiresAtMs: 10,
+        attachment: { ...input },
+      };
+    },
+  };
+  const socket = new FakeSocket();
+  const connection = new BrowserConnection("conn-1", socket, "secret", services);
+  connection.receiveText(JSON.stringify({ type: "auth", requestId: "a", token: "secret" }));
+  connection.receiveText(JSON.stringify({
+    type: "session.start",
+    requestId: "s",
+    projectId: "projects/demo",
+  }));
+  connection.receiveText(JSON.stringify({
+    type: "attachment.ticket.create",
+    requestId: "ticket",
+    originalName: "../screen.png",
+    declaredMime: "image/png",
+    expectedSize: 123,
+  }));
+  await connection.whenIdle();
+
+  assert.deepEqual(received, {
+    caller: "grok",
+    projectId: "projects/demo",
+    sessionId: "pending-1",
+    originalName: "../screen.png",
+    declaredMime: "image/png",
+    expectedSize: 123,
+  });
+  const response = socket.messages.find((item) =>
+    typeof item === "object" && item !== null &&
+    (item as { requestId?: string }).requestId === "ticket"
+  ) as { ok: boolean; data: { ticket: string } };
+  assert.equal(response.ok, true);
+  assert.equal(response.data.ticket, "one-time-ticket");
+  await connection.disconnect();
+  services.presence.dispose();
+});
+
 test("redacts missing authentication", async () => {
   const services = makeServices(fakeTurns());
   const socket = new FakeSocket();

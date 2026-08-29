@@ -29,18 +29,18 @@
 | 工具展示 | 与 Codex Remote 同类：聊天里给命令卡片，不把审批做成看代码 |
 | 命令标题 | 只显示前面一小段加省略号，点开看全文 |
 | 进程模型 | 按需会话 Worker，第一版就按这个骨架做 |
-| 上传 | 第一版不做 |
+| 上传 | 复用共享 `ai-remote-upload` 服务、附件 ID、一次性票据和任务租约；不在本仓库复制存储层 |
 
 ## 3. 第一版不做
 
-- 文件上传到 VPS、把路径或附件交给模型
+- 在 Grok Remote 内复制一套附件存储、清理或公网上传服务
 - 和 Codex Remote 合并成同一个运行时前端或共用整套 Node 后端
 - 每个会话常驻一个 Grok 进程（HAPI 那种，关掉页面或归档才释放）
 - 全站共用一个长驻 `grok agent`、所有会话都挂在上面
 - 浏览器直连 `grok agent serve`
 - 每条消息用 `grok -p` 起一个一次性进程（接不上双向审批）
 
-上传与哪个模型无关。以后若做，应单独做成模型无关的存盘服务，给 grok-remote、codex-remote、以及可能的 claude-remote 用，而不是揉进某一套 Remote。第一版不加，后加也不会重写主路径。
+附件存盘由模型无关的共享 `ai-remote-upload` 服务负责，可供 Grok Remote、Codex Remote 和其它 Remote 复用。Grok Remote 只实现自己的鉴权入口、任务租约和 ACP 输入映射。
 
 ## 4. 数据路径
 
@@ -48,6 +48,7 @@
 手机或电脑浏览器 PWA
   → HTTPS（Tailscale Serve 或公网反代）
   → 127.0.0.1:8788 上的 Grok Remote（共享 Node 后端）
+  → Unix socket 上的共享 ai-remote-upload（仅附件）
   → 仅在需要执行时：按需 Worker = grok agent stdio（ACP JSON-RPC）
   → Grok 原生会话 ~/.grok/sessions/<按工作目录分组>/<session-id>/
 ```
@@ -65,6 +66,7 @@
 | `GROK_REMOTE_ALLOWED_ORIGINS` | 额外允许的 Origin，逗号分隔；通常留空 |
 | `GROK_REMOTE_PROJECTS_CONFIG` | 项目白名单文件路径 |
 | `GROK_BIN` | `grok` 可执行文件；默认从 `PATH` 查找 |
+| `AI_REMOTE_UPLOAD_SOCKET` | 共享上传服务 Unix socket；默认 `~/.local/share/ai-remote/upload.sock` |
 
 项目白名单可与 Codex Remote 共用同一份配置，也可以单独提供；部署时由 `GROK_REMOTE_PROJECTS_CONFIG` 指向实际配置文件。配置文件声明一个或多个项目根目录，网页里的项目是根目录下的第一层文件夹。
 
@@ -110,13 +112,21 @@ Worker 是独立进程组里的 `grok agent stdio`，不是 Node `worker_threads
 
 快捷栏按钮文案用 `always-approve`。手机窄屏那一行可横滑；若以后字太长再改图标。
 
-### 6.4 状态
+### 6.4 附件与租约
+
+- 浏览器在已认证 WebSocket 上申请票据，并同源流式上传原始字节；票据固定绑定 `grok + projectId + sessionId`。
+- 消息的幂等记录同时保存正文与附件 ID；相同 `clientMessageId` 不能换正文或附件重用。
+- 后端接受带附件的消息前创建租约，排队、执行和等待审批期间每 5 分钟续期，完成、失败或中断后释放。
+- 公开事件只保存附件 ID、原始文件名和其它公开元数据；共享存储路径和附件正文只在本机适配过程中使用。
+- 图片使用 ACP `image` 内容块；UTF-8 文本使用 ACP 内嵌文本资源；其它二进制使用 ACP blob 资源。不能把成功上传等同于模型已经理解内容。
+
+### 6.5 状态
 
 后端至少区分：`queued`、`running`、`waiting_for_permission`、`completed`、`interrupted`、`failed`。
 
 前端断开不得丢掉已接受的消息、部分回复、工具事件、最终回复。
 
-### 6.5 资源
+### 6.6 资源
 
 - 活动 Worker 要有明确上限。到上限时告诉用户并拒绝或排队，禁止偷偷停掉别的会话。
 - 启动前看可用内存，低于阈值就明确反馈，避免把 VPS 打进持续换页或 OOM。
@@ -175,6 +185,8 @@ Worker 是独立进程组里的 `grok agent stdio`，不是 Node `worker_threads
 - `always-approve`：前端断开后可授权操作仍继续，跑完 Worker 退出。
 - 需要人回答的问题在无前端时中止本轮。
 - 重连可续上事件或读完整结果，不因重试而把已接受的消息跑两遍。
+- 可上传、移除并发送多个附件；浏览器和公开事件看不到共享存储路径或附件正文。
+- 真实图片和 UTF-8 文本附件能被 Grok 按内容理解；不支持的二进制格式给出明确结果，不把落盘成功冒充为理解成功。
 - 同一会话不会两个 Worker 一起跑；结束后不留 Grok 子进程。
 - 只看历史时，进程列表里不应出现该会话的 `grok agent`。
 - 命令标题过长被截断，点开可见全文。

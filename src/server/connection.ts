@@ -3,6 +3,8 @@ import { timingSafeEqual } from "node:crypto";
 import { COMMAND_CATALOG } from "../commands/catalog.ts";
 import { CommandRunner } from "../commands/runner.ts";
 import type { ProjectSummary } from "../projects/catalog.ts";
+import type { SharedUploadClient } from "../shared-upload/client.ts";
+import { SharedUploadError } from "../shared-upload/types.ts";
 import type { PresenceTracker } from "./presence.ts";
 import { publicErrorMessage } from "./public-error.ts";
 import {
@@ -20,7 +22,11 @@ import type {
 } from "../sessions/service.ts";
 import type { LayoutOrigin } from "../sessions/layout-store.ts";
 import type { TurnSnapshot } from "../sessions/types.ts";
-import type { ApprovalView, BrowserTurnEvent } from "../turns/runtime.ts";
+import {
+  TurnRuntimeError,
+  type ApprovalView,
+  type BrowserTurnEvent,
+} from "../turns/runtime.ts";
 
 export interface BrowserSocket {
   send(data: string): void;
@@ -57,6 +63,7 @@ export type TurnApi = {
     sessionId: string;
     text: string;
     clientMessageId: string;
+    attachmentIds: string[];
   }): Promise<{ accepted: true; turnId: string; sessionId: string; clientMessageId: string }>;
   stop(sessionId: string): Promise<void>;
   toggleAlwaysApprove(sessionId: string): Promise<{ enabled: boolean }>;
@@ -77,6 +84,7 @@ export type BrowserConnectionServices = {
   commands: CommandRunner;
   locks: ProjectTaskLocks;
   presence: PresenceTracker;
+  uploads?: Pick<SharedUploadClient, "createTicket">;
 };
 
 export class BrowserRequestError extends Error {
@@ -192,7 +200,10 @@ export class BrowserConnection {
       const data = await this.#dispatch(request);
       this.#send({ type: "response", requestId: request.requestId, ok: true, data });
     } catch (error) {
-      const code = error instanceof BrowserRequestError ? error.code : "request_failed";
+      const code = error instanceof BrowserRequestError || error instanceof TurnRuntimeError ||
+          error instanceof SharedUploadError
+        ? error.code
+        : "request_failed";
       this.#sendFailure(request.requestId, code, publicErrorMessage(error));
     }
   }
@@ -253,8 +264,21 @@ export class BrowserConnection {
         return this.#runCommand(request);
       case "permissions.always-approve.toggle":
         return this.#toggleAlwaysApprove();
+      case "attachment.ticket.create": {
+        if (!this.#services.uploads) {
+          throw new BrowserRequestError("uploads_unavailable", "当前后端没有启用附件服务。");
+        }
+        return this.#services.uploads.createTicket({
+          caller: "grok",
+          projectId: this.#projectId!,
+          sessionId: this.#requireSession(),
+          originalName: request.originalName,
+          declaredMime: request.declaredMime,
+          expectedSize: request.expectedSize,
+        });
+      }
       case "message.send":
-        return this.#sendMessage(request.text, request.clientMessageId);
+        return this.#sendMessage(request.text, request.clientMessageId, request.attachmentIds);
       case "task.stop":
         return this.#stopTask();
       case "approval.answer":
@@ -319,7 +343,11 @@ export class BrowserConnection {
     return { tasks, hasOlder: this.#older.length > 0 };
   }
 
-  async #sendMessage(text: string, clientMessageId: string): Promise<unknown> {
+  async #sendMessage(
+    text: string,
+    clientMessageId: string,
+    attachmentIds: string[],
+  ): Promise<unknown> {
     const sessionId = this.#requireSession();
     const projectId = this.#projectId!;
     if (!this.#services.locks.acquire(projectId, this.#id, sessionId)) {
@@ -331,6 +359,7 @@ export class BrowserConnection {
         sessionId,
         text,
         clientMessageId,
+        attachmentIds,
       });
       if (result.sessionId !== sessionId) {
         this.#sessionId = result.sessionId;

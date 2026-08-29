@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { GrokSessionDisk } from "./disk.ts";
-import { parseUpdatesJsonl } from "./history.ts";
+import { parseActivePromptIndex, parseUpdatesJsonl } from "./history.ts";
 
 test("lists sessions that belong to the project cwd", async (context) => {
   const grokHome = await mkdtemp(path.join(tmpdir(), "grok-remote-sessions-"));
@@ -21,12 +21,61 @@ test("lists sessions that belong to the project cwd", async (context) => {
   await mkdir(path.join(group, "sess-keep"), { recursive: true });
   await mkdir(path.join(otherGroup, "sess-skip"), { recursive: true });
   await writeSummary(path.join(group, "sess-keep"), "sess-keep", project, "Keep me");
+  await writeFile(
+    path.join(group, "sess-keep", "rewind_points.jsonl"),
+    `${JSON.stringify({ prompt_index: 2 })}\n`,
+  );
   await writeSummary(path.join(otherGroup, "sess-skip"), "sess-skip", other, "Skip me");
 
   const disk = new GrokSessionDisk(grokHome);
   const listed = await disk.listForCwd(project);
   assert.deepEqual(listed.map((item) => item.id), ["sess-keep"]);
   assert.equal(listed[0]?.title, "Keep me");
+  assert.equal(
+    await disk.readRewindPointsJsonl("sess-keep"),
+    `${JSON.stringify({ prompt_index: 2 })}\n`,
+  );
+  assert.equal(await disk.readRewindPointsJsonl("sess-skip"), null);
+});
+
+test("finds the active prompt boundary from rewind points", () => {
+  assert.equal(parseActivePromptIndex(null), undefined);
+  assert.equal(parseActivePromptIndex(""), -1);
+  assert.equal(parseActivePromptIndex("not json\n"), undefined);
+  assert.equal(parseActivePromptIndex([
+    JSON.stringify({ prompt_index: 4 }),
+    JSON.stringify({ prompt_index: 2 }),
+    JSON.stringify({ ignored: true }),
+  ].join("\n")), 4);
+});
+
+test("keeps only the current occurrence of each active prompt index", () => {
+  const source = [
+    indexedUserLine(0, "base"),
+    indexedAgentLine("base-turn", "base reply"),
+    completedLine("base-turn"),
+    indexedUserLine(1, "old branch"),
+    indexedAgentLine("old-turn", "old reply"),
+    completedLine("old-turn", "cancelled"),
+    indexedUserLine(1, "new branch"),
+    indexedAgentLine("new-turn", "new reply"),
+    completedLine("new-turn"),
+    indexedUserLine(2, "later branch"),
+    indexedAgentLine("later-turn", "later reply"),
+    completedLine("later-turn"),
+  ].join("\n");
+
+  const afterNewPrompt = parseUpdatesJsonl(source, { activePromptIndex: 1 });
+  assert.deepEqual(afterNewPrompt.map((turn) => turn.id), ["base-turn", "new-turn"]);
+  assert.deepEqual(
+    afterNewPrompt.flatMap((turn) => turn.items).map(textOf),
+    ["base", "base reply", "new branch", "new reply"],
+  );
+  assert.equal(JSON.stringify(afterNewPrompt).includes("old branch"), false);
+  assert.equal(JSON.stringify(afterNewPrompt).includes("later branch"), false);
+
+  const immediatelyAfterRewind = parseUpdatesJsonl(source, { activePromptIndex: 0 });
+  assert.deepEqual(immediatelyAfterRewind.map((turn) => turn.id), ["base-turn"]);
 });
 
 test("parses updates.jsonl into chat items and hides thoughts", () => {
@@ -168,6 +217,45 @@ function updateLine(sessionUpdate: string, update: Record<string, unknown>): str
     params: {
       update: { sessionUpdate, ...update },
       _meta: { promptId: "turn-1" },
+    },
+  });
+}
+
+function indexedUserLine(promptIndex: number, text: string): string {
+  return JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text },
+        _meta: { promptIndex },
+      },
+    },
+  });
+}
+
+function indexedAgentLine(promptId: string, text: string): string {
+  return JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text },
+      },
+      _meta: { promptId },
+    },
+  });
+}
+
+function completedLine(promptId: string, stopReason = "end_turn"): string {
+  return JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "turn_completed",
+        prompt_id: promptId,
+        stop_reason: stopReason,
+      },
     },
   });
 }

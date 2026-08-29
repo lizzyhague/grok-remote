@@ -105,6 +105,17 @@ export class GrokSessionDisk {
       return "";
     }
   }
+
+  async readRewindPointsJsonl(sessionId: string): Promise<string | null> {
+    const directory = await this.findDirectory(sessionId);
+    if (!directory) return null;
+    try {
+      return await readFile(path.join(directory, "rewind_points.jsonl"), "utf8");
+    } catch {
+      // 旧会话或尚未产生可回退轮次的会话可能没有这个文件。
+      return null;
+    }
+  }
 }
 
 export async function readSessionRecord(sessionDir: string): Promise<GrokSessionRecord | null> {

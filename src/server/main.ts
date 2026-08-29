@@ -11,6 +11,8 @@ import {
 } from "../sessions/layout-store.ts";
 import { SessionService } from "../sessions/service.ts";
 import { RemoteSessionStore, resolveStateDir } from "../sessions/store.ts";
+import { SharedUploadClient } from "../shared-upload/client.ts";
+import { resolveSharedUploadSocket } from "../shared-upload/paths.ts";
 import { PresenceTracker } from "./presence.ts";
 import { ProjectTaskLocks } from "./project-locks.ts";
 import { RemoteWebSocketServer } from "./http-server.ts";
@@ -38,11 +40,13 @@ export async function main(): Promise<void> {
   const store = new RemoteSessionStore(resolveStateDir());
   const layout = await SessionLayoutStore.open(resolveLayoutStatePath());
   const presence = new PresenceTracker();
+  const uploads = new SharedUploadClient(resolveSharedUploadSocket());
   const turns = new TurnRuntime({
     store,
     projects,
     presence,
     grokBin,
+    uploads,
     maxWorkers: readPositiveInt(process.env.GROK_REMOTE_MAX_WORKERS, DEFAULT_MAX_WORKERS),
     minFreeMemoryBytes: readPositiveInt(
       process.env.GROK_REMOTE_MIN_FREE_MEMORY_MB,
@@ -66,7 +70,9 @@ export async function main(): Promise<void> {
       commands,
       locks: new ProjectTaskLocks(),
       presence,
+      uploads,
     },
+    uploads,
   });
 
   try {

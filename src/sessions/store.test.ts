@@ -12,11 +12,16 @@ test("deduplicates client message ids and copies events when binding", async (co
   const store = new RemoteSessionStore(dir);
   const pending = await store.createPending("projects/demo");
   pending.clientMessageIds["c1"] = "turn-1";
+  pending.clientMessagePayloads["c1"] = { text: "hello", attachmentIds: ["attachment-1"] };
   await store.writeMeta(pending);
   await store.appendEvent(pending.id, { type: "turn.accepted", turnId: "turn-1" });
   const bound = await store.bindGrokSession(pending.id, "grok-session-1");
   assert.equal(bound.id, "grok-session-1");
   assert.equal(bound.clientMessageIds.c1, "turn-1");
+  assert.deepEqual(bound.clientMessagePayloads.c1, {
+    text: "hello",
+    attachmentIds: ["attachment-1"],
+  });
   const events = await store.eventsSince("grok-session-1", 0);
   assert.equal(events[0]?.event.type, "turn.accepted");
   assert.equal(await store.readMeta(pending.id), null);

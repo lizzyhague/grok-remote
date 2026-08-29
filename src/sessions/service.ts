@@ -2,7 +2,7 @@ import { realpath } from "node:fs/promises";
 
 import type { ProjectCatalog } from "../projects/catalog.ts";
 import { GrokSessionDisk } from "./disk.ts";
-import { parseUpdatesJsonl } from "./history.ts";
+import { parseActivePromptIndex, parseUpdatesJsonl } from "./history.ts";
 import {
   SessionLayoutStore,
   type LayoutOrigin,
@@ -167,8 +167,13 @@ export class SessionService {
     }
     await assertCwdBelongs(record.cwd, project.path);
 
-    const updates = await this.#disk.readUpdatesJsonl(sessionId);
-    const turns = parseUpdatesJsonl(updates);
+    const [updates, rewindPoints] = await Promise.all([
+      this.#disk.readUpdatesJsonl(sessionId),
+      this.#disk.readRewindPointsJsonl(sessionId),
+    ]);
+    const turns = parseUpdatesJsonl(updates, {
+      activePromptIndex: parseActivePromptIndex(rewindPoints),
+    });
     const visibleStart = Math.max(0, turns.length - HISTORY_PAGE_SIZE);
     if (!meta) {
       await this.#store.writeMeta({
@@ -179,6 +184,7 @@ export class SessionService {
         title: record.title,
         createdAt: record.createdAt,
         clientMessageIds: {},
+        clientMessagePayloads: {},
       });
     }
 

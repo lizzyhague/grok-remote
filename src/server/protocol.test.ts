@@ -43,6 +43,35 @@ test("parses the grok-remote browser protocol", () => {
     requestId: "m1",
     text: "hello",
     clientMessageId: "client-1",
+    attachmentIds: [],
+  });
+
+  assert.deepEqual(parseBrowserRequest(JSON.stringify({
+    type: "message.send",
+    requestId: "m2",
+    text: "",
+    clientMessageId: "client-2",
+    attachmentIds: ["attachment-1", "attachment-1", "attachment-2"],
+  })), {
+    type: "message.send",
+    requestId: "m2",
+    text: "",
+    clientMessageId: "client-2",
+    attachmentIds: ["attachment-1", "attachment-2"],
+  });
+
+  assert.deepEqual(parseBrowserRequest(JSON.stringify({
+    type: "attachment.ticket.create",
+    requestId: "ticket-1",
+    originalName: "screen.png",
+    declaredMime: "image/png",
+    expectedSize: 123,
+  })), {
+    type: "attachment.ticket.create",
+    requestId: "ticket-1",
+    originalName: "screen.png",
+    declaredMime: "image/png",
+    expectedSize: 123,
   });
 
   assert.deepEqual(parseBrowserRequest(JSON.stringify({

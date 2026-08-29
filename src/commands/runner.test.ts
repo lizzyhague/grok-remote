@@ -20,6 +20,7 @@ test("keeps context and session-info as distinct native queries", async (context
     title: "Demo",
     createdAt: 1,
     clientMessageIds: {},
+    clientMessagePayloads: {},
   });
   const runtime = fakeRuntime();
   const runner = new CommandRunner(runtime, new GrokSessionDisk(root), store);

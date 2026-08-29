@@ -13,6 +13,7 @@ export type StoredSessionMeta = {
   title: string;
   createdAt: number;
   clientMessageIds: Record<string, string>;
+  clientMessagePayloads: Record<string, { text: string; attachmentIds: string[] }>;
 };
 
 export type StoredEvent = {
@@ -45,7 +46,13 @@ export class RemoteSessionStore {
       const raw = await readFile(path.join(this.sessionDir(sessionId), "meta.json"), "utf8");
       const parsed: unknown = JSON.parse(raw);
       if (!isMeta(parsed)) return null;
-      return parsed;
+      return {
+        ...parsed,
+        clientMessageIds: isStringRecord(parsed.clientMessageIds) ? parsed.clientMessageIds : {},
+        clientMessagePayloads: isClientMessagePayloadRecord(parsed.clientMessagePayloads)
+          ? parsed.clientMessagePayloads
+          : {},
+      };
     } catch {
       return null;
     }
@@ -67,6 +74,7 @@ export class RemoteSessionStore {
       title,
       createdAt: Math.floor(Date.now() / 1_000),
       clientMessageIds: {},
+      clientMessagePayloads: {},
     };
     await this.writeMeta(meta);
     return meta;
@@ -239,4 +247,23 @@ function isStoredEvent(value: unknown): value is StoredEvent {
     value !== null &&
     typeof (value as StoredEvent).seq === "number" &&
     typeof (value as StoredEvent).event === "object";
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === "string");
+}
+
+function isClientMessagePayloadRecord(
+  value: unknown,
+): value is Record<string, { text: string; attachmentIds: string[] }> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) &&
+    Object.values(value).every((entry) =>
+      typeof entry === "object" && entry !== null && !Array.isArray(entry) &&
+      typeof (entry as { text?: unknown }).text === "string" &&
+      Array.isArray((entry as { attachmentIds?: unknown }).attachmentIds) &&
+      ((entry as { attachmentIds: unknown[] }).attachmentIds).every((id) =>
+        typeof id === "string"
+      )
+    );
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -42,9 +42,60 @@ test("duplicate clientMessageId returns the same accepted turn", async (context)
     sessionId: pending.id,
     text: "hello",
     clientMessageId: "dup",
+    attachmentIds: [],
   });
   assert.equal(first.turnId, "existing-turn");
   assert.equal(first.accepted, true);
+});
+
+test("rejects a session that belongs to a different project before leasing attachments", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "grok-remote-turn-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, "one"), { recursive: true });
+  await mkdir(path.join(root, "two"), { recursive: true });
+  const catalog = await ProjectCatalog.fromRoots([{ id: "projects", path: root }]);
+  const store = new RemoteSessionStore(path.join(root, "state"));
+  const presence = new PresenceTracker();
+  let leaseCalls = 0;
+  const runtime = new TurnRuntime({
+    store,
+    projects: catalog,
+    presence,
+    grokBin: "grok",
+    spawnAgent: () => {
+      throw new Error("不应启动 Worker");
+    },
+    uploads: {
+      async createLease() {
+        leaseCalls += 1;
+        throw new Error("不应创建租约");
+      },
+      async renewLease(leaseId) {
+        return { leaseId, expiresAtMs: Date.now() + 60_000 };
+      },
+      async releaseLease() {},
+    },
+  });
+  context.after(async () => {
+    await runtime.dispose();
+    presence.dispose();
+  });
+
+  const pending = await store.createPending("projects/one");
+  await assert.rejects(
+    runtime.sendMessage({
+      projectId: "projects/two",
+      sessionId: pending.id,
+      text: "hello",
+      clientMessageId: "wrong-project",
+      attachmentIds: ["attachment-id"],
+    }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "session_project_mismatch",
+  );
+  assert.equal(leaseCalls, 0);
 });
 
 test("message.user confirms the originating clientMessageId", async (context) => {
@@ -81,6 +132,7 @@ test("message.user confirms the originating clientMessageId", async (context) =>
     sessionId: pending.id,
     text: "hello",
     clientMessageId: "client-1",
+    attachmentIds: [],
   });
   await completed;
   await fake.exited;
@@ -89,6 +141,94 @@ test("message.user confirms the originating clientMessageId", async (context) =>
   assert.ok(userMessage);
   assert.equal(userMessage.clientMessageId, "client-1");
   assert.equal(userMessage.text, "hello");
+});
+
+test("leases attachments, sends private content to ACP, and releases without persisting paths", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "grok-remote-turn-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, "demo"), { recursive: true });
+  const privatePath = path.join(root, "shared-private-note.txt");
+  await writeFile(privatePath, "private attachment body\n", "utf8");
+  const catalog = await ProjectCatalog.fromRoots([{ id: "projects", path: root }]);
+  const store = new RemoteSessionStore(path.join(root, "state"));
+  const presence = new PresenceTracker();
+  const fake = respondingAgent();
+  let binding: unknown;
+  let released = 0;
+  const runtime = new TurnRuntime({
+    store,
+    projects: catalog,
+    presence,
+    grokBin: "grok",
+    spawnAgent: () => fake.agent,
+    uploads: {
+      async createLease(receivedBinding, ownerId, attachmentIds) {
+        binding = { receivedBinding, ownerId, attachmentIds };
+        return {
+          leaseId: "lease-1",
+          ownerId,
+          expiresAtMs: Date.now() + 60_000,
+          attachments: [{
+            id: attachmentIds[0]!,
+            caller: "grok",
+            projectId: "projects/demo",
+            sessionId: "pending-binding",
+            originalName: "private-note.txt",
+            declaredMime: "text/plain",
+            detectedMime: "text/plain",
+            kind: "file",
+            size: Buffer.byteLength("private attachment body\n"),
+            sha256: "test-sha",
+            createdAtMs: 1,
+            expiresAtMs: 2,
+            path: privatePath,
+          }],
+        };
+      },
+      async renewLease(leaseId) {
+        return { leaseId, expiresAtMs: Date.now() + 60_000 };
+      },
+      async releaseLease(leaseId, ownerId) {
+        assert.equal(leaseId, "lease-1");
+        assert.equal(typeof ownerId, "string");
+        released += 1;
+      },
+    },
+  });
+  context.after(async () => {
+    await runtime.dispose();
+    presence.dispose();
+  });
+
+  const pending = await store.createPending("projects/demo");
+  const completed = new Promise<void>((resolve) => {
+    runtime.onEvent((event) => {
+      if (event.type === "turn.status" && event.status === "completed") resolve();
+    });
+  });
+  await runtime.sendMessage({
+    projectId: "projects/demo",
+    sessionId: pending.id,
+    text: "summarize",
+    clientMessageId: "client-attachment",
+    attachmentIds: ["attachment-id"],
+  });
+  await completed;
+  await fake.exited;
+
+  assert.deepEqual(
+    (binding as { receivedBinding: unknown }).receivedBinding,
+    { caller: "grok", projectId: "projects/demo", sessionId: pending.id },
+  );
+  const prompt = (fake.prompts[0] as { prompt: unknown[] }).prompt;
+  assert.equal(JSON.stringify(prompt).includes("private attachment body"), true);
+  assert.equal(JSON.stringify(prompt).includes(privatePath), false);
+  assert.equal(released, 1);
+  const stored = await store.eventsSince("grok-session", 0);
+  const publicEvents = JSON.stringify(stored);
+  assert.equal(publicEvents.includes(privatePath), false);
+  assert.equal(publicEvents.includes("private attachment body"), false);
+  assert.match(publicEvents, /private-note\.txt/u);
 });
 
 test("command approvals ignore login text and use the concise description", async (context) => {
@@ -142,6 +282,7 @@ test("command approvals ignore login text and use the concise description", asyn
     sessionId: pending.id,
     text: "inspect node1",
     clientMessageId: "client-approval",
+    attachmentIds: [],
   });
   const approval = await approvalRequested;
   assert.equal(approval.kind, "command");
@@ -156,7 +297,7 @@ test("command approvals ignore login text and use the concise description", asyn
 
 function respondingAgent(
   permissionToolCall: Record<string, unknown> | null = null,
-): { agent: SpawnedAgent; exited: Promise<void> } {
+): { agent: SpawnedAgent; exited: Promise<void>; prompts: unknown[] } {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const stderr = new PassThrough();
@@ -195,6 +336,7 @@ function respondingAgent(
 
   let buffered = "";
   let promptRequestId: number | null = null;
+  const prompts: unknown[] = [];
   stdin.on("data", (chunk: Buffer) => {
     buffered += chunk.toString("utf8");
     for (;;) {
@@ -203,7 +345,7 @@ function respondingAgent(
       const line = buffered.slice(0, newline).trim();
       buffered = buffered.slice(newline + 1);
       if (!line) continue;
-      const request = JSON.parse(line) as { id?: number; method?: string };
+      const request = JSON.parse(line) as { id?: number; method?: string; params?: unknown };
       if (!request.method) {
         if (request.id === 99 && promptRequestId !== null) {
           stdout.write(`${JSON.stringify({
@@ -216,6 +358,7 @@ function respondingAgent(
         continue;
       }
       if (request.id === undefined) continue;
+      if (request.method === "session/prompt") prompts.push(request.params);
       if (request.method === "session/prompt" && permissionToolCall) {
         promptRequestId = request.id;
         stdout.write(`${JSON.stringify({
@@ -250,5 +393,5 @@ function respondingAgent(
     process: proc as unknown as ChildProcessWithoutNullStreams,
     killGroup: () => exit(),
   };
-  return { agent, exited };
+  return { agent, exited, prompts };
 }

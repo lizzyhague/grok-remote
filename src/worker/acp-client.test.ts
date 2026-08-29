@@ -63,6 +63,34 @@ test("explicitly sends the selected permission mode for new and resumed sessions
   await client.close();
 });
 
+test("sends structured image and embedded-resource prompt blocks unchanged", async () => {
+  const { proc, stdin, stdout } = fakeProcess();
+  const client = new AcpClient(proc);
+  const prompt = [
+    { type: "text" as const, text: "inspect" },
+    { type: "image" as const, data: "aGVsbG8=", mimeType: "image/png" },
+    {
+      type: "resource" as const,
+      resource: { uri: "file://attachment/note.txt", mimeType: "text/plain", text: "hello" },
+    },
+  ];
+  const pending = client.sessionPrompt("s1", prompt);
+  const request = JSON.parse(await readLine(stdin)) as {
+    id: number;
+    method: string;
+    params: unknown;
+  };
+  assert.equal(request.method, "session/prompt");
+  assert.deepEqual(request.params, { sessionId: "s1", prompt });
+  stdout.write(`${JSON.stringify({
+    jsonrpc: "2.0",
+    id: request.id,
+    result: { stopReason: "end_turn" },
+  })}\n`);
+  assert.equal((await pending).stopReason, "end_turn");
+  await client.close();
+});
+
 test("forwards permission requests to the caller", async () => {
   const { proc, stdout } = fakeProcess();
   const client = new AcpClient(proc);

@@ -1,9 +1,22 @@
 import { randomUUID } from "node:crypto";
 
+import {
+  attachmentDisplayText,
+  buildGrokPrompt,
+  GrokAttachmentError,
+  validateGrokAttachments,
+} from "../attachments/grok-input.ts";
 import type { ResolvedProject } from "../projects/catalog.ts";
 import type { PresenceTracker } from "../server/presence.ts";
 import { PENDING_SESSION_PREFIX } from "../sessions/types.ts";
 import type { RemoteSessionStore, StoredSessionMeta } from "../sessions/store.ts";
+import type { SharedUploadClient } from "../shared-upload/client.ts";
+import {
+  type AttachmentLease,
+  type PublicAttachment,
+  type ResolvedAttachment,
+  SharedUploadError,
+} from "../shared-upload/types.ts";
 import {
   AcpClient,
   type AcpPermissionRequest,
@@ -37,6 +50,16 @@ export type ApprovalView = {
   startedAtMs: number;
 };
 
+export class TurnRuntimeError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "TurnRuntimeError";
+    this.code = code;
+  }
+}
+
 type QueuedWork =
   | {
     kind: "prompt";
@@ -44,6 +67,7 @@ type QueuedWork =
     text: string;
     clientMessageId: string | null;
     modeId: string | null;
+    attachments: ResolvedAttachment[];
   }
   | { kind: "compact"; turnId: string };
 
@@ -79,10 +103,16 @@ export class TurnRuntime {
   readonly #spawn: SpawnAgent;
   readonly #maxWorkers: number;
   readonly #minFreeMemoryBytes: number;
+  readonly #uploads: Pick<
+    SharedUploadClient,
+    "createLease" | "renewLease" | "releaseLease"
+  > | undefined;
   readonly #listeners = new Set<(event: BrowserTurnEvent) => void>();
   readonly #workers = new Map<string, LiveWorker>();
   readonly #approvals = new Map<string, { worker: LiveWorker; pending: PendingApproval }>();
+  readonly #attachmentLeases = new Map<string, AttachmentLease>();
   readonly #unsubscribePresence: () => void;
+  #attachmentLeaseTimer: NodeJS.Timeout | null = null;
   #modelCache: ModelOption[] = [];
 
   constructor(options: {
@@ -93,6 +123,7 @@ export class TurnRuntime {
     spawnAgent?: SpawnAgent;
     maxWorkers?: number;
     minFreeMemoryBytes?: number;
+    uploads?: Pick<SharedUploadClient, "createLease" | "renewLease" | "releaseLease">;
   }) {
     this.#store = options.store;
     this.#projects = options.projects;
@@ -101,6 +132,13 @@ export class TurnRuntime {
     this.#spawn = options.spawnAgent ?? spawnGrokAgent;
     this.#maxWorkers = options.maxWorkers ?? DEFAULT_MAX_WORKERS;
     this.#minFreeMemoryBytes = options.minFreeMemoryBytes ?? DEFAULT_MIN_FREE_MEMORY_BYTES;
+    this.#uploads = options.uploads;
+    if (this.#uploads) {
+      this.#attachmentLeaseTimer = setInterval(() => {
+        void this.#renewAttachmentLeases();
+      }, 5 * 60 * 1_000);
+      this.#attachmentLeaseTimer.unref();
+    }
     this.#unsubscribePresence = this.#presence.subscribe({
       onGraceExpired: () => {
         void this.interruptUnattended();
@@ -140,10 +178,22 @@ export class TurnRuntime {
     sessionId: string;
     text: string;
     clientMessageId: string;
+    attachmentIds: string[];
   }): Promise<{ accepted: true; turnId: string; sessionId: string; clientMessageId: string }> {
     const meta = await this.#requireMeta(input.projectId, input.sessionId);
     const existing = meta.clientMessageIds[input.clientMessageId];
     if (existing) {
+      const previous = meta.clientMessagePayloads[input.clientMessageId];
+      if (
+        (previous && (previous.text !== input.text ||
+          JSON.stringify(previous.attachmentIds) !== JSON.stringify(input.attachmentIds))) ||
+        (!previous && input.attachmentIds.length > 0)
+      ) {
+        throw new TurnRuntimeError(
+          "client_message_conflict",
+          "这个客户端消息 ID 已用于另一组正文或附件。",
+        );
+      }
       return {
         accepted: true,
         turnId: existing,
@@ -152,29 +202,60 @@ export class TurnRuntime {
       };
     }
     const turnId = randomUUID();
-    meta.clientMessageIds[input.clientMessageId] = turnId;
-    await this.#store.writeMeta(meta);
-    await this.#emit(meta.id, {
-      type: "turn.accepted",
-      turnId,
-      clientMessageId: input.clientMessageId,
-      status: "queued",
-    });
-    const worker = await this.#ensureWorker(meta);
-    worker.queue.push({
-      kind: "prompt",
-      turnId,
-      text: input.text,
-      clientMessageId: input.clientMessageId,
-      modeId: null,
-    });
-    void this.#drain(worker);
-    return {
-      accepted: true,
-      turnId,
-      sessionId: meta.grokSessionId ?? meta.id,
-      clientMessageId: input.clientMessageId,
-    };
+    let lease: AttachmentLease | null = null;
+    try {
+      if (input.attachmentIds.length > 0) {
+        if (!this.#uploads) {
+          throw new TurnRuntimeError("uploads_unavailable", "当前后端没有启用附件服务。");
+        }
+        lease = await this.#uploads.createLease(
+          { caller: "grok", projectId: meta.projectId, sessionId: meta.id },
+          turnId,
+          input.attachmentIds,
+        );
+        validateGrokAttachments(lease.attachments);
+      }
+      const worker = await this.#ensureWorker(meta);
+      meta.clientMessageIds[input.clientMessageId] = turnId;
+      meta.clientMessagePayloads[input.clientMessageId] = {
+        text: input.text,
+        attachmentIds: [...input.attachmentIds],
+      };
+      await this.#store.writeMeta(meta);
+      try {
+        await this.#emit(meta.id, {
+          type: "turn.accepted",
+          turnId,
+          clientMessageId: input.clientMessageId,
+          status: "queued",
+          attachments: lease?.attachments.map(publicAttachment) ?? [],
+        });
+      } catch (error) {
+        delete meta.clientMessageIds[input.clientMessageId];
+        delete meta.clientMessagePayloads[input.clientMessageId];
+        await this.#store.writeMeta(meta).catch(() => {});
+        throw error;
+      }
+      if (lease) this.#attachmentLeases.set(turnId, lease);
+      worker.queue.push({
+        kind: "prompt",
+        turnId,
+        text: input.text,
+        clientMessageId: input.clientMessageId,
+        modeId: null,
+        attachments: lease?.attachments ?? [],
+      });
+      void this.#drain(worker);
+      return {
+        accepted: true,
+        turnId,
+        sessionId: meta.grokSessionId ?? meta.id,
+        clientMessageId: input.clientMessageId,
+      };
+    } catch (error) {
+      if (lease) await this.#releaseAttachmentLease(turnId, lease);
+      throw runtimeAttachmentError(error);
+    }
   }
 
   async runPrompt(sessionId: string, text: string): Promise<{ turnId: string }> {
@@ -187,7 +268,14 @@ export class TurnRuntime {
       status: "queued",
     });
     const worker = await this.#ensureWorker(meta);
-    worker.queue.push({ kind: "prompt", turnId, text, clientMessageId: null, modeId: null });
+    worker.queue.push({
+      kind: "prompt",
+      turnId,
+      text,
+      clientMessageId: null,
+      modeId: null,
+      attachments: [],
+    });
     void this.#drain(worker);
     return { turnId };
   }
@@ -242,6 +330,7 @@ export class TurnRuntime {
         text: prompt,
         clientMessageId: null,
         modeId: "plan",
+        attachments: [],
       });
       void this.#drain(worker);
       return { turnId };
@@ -307,7 +396,8 @@ export class TurnRuntime {
   async stop(sessionId: string): Promise<void> {
     const worker = this.#workers.get(sessionId);
     if (!worker) return;
-    worker.queue = [];
+    const queued = worker.queue.splice(0);
+    await Promise.all(queued.map((item) => this.#releaseTaskAttachmentLease(item.turnId)));
     if (worker.pendingApproval) {
       this.#resolveApproval(worker, { outcome: "cancelled" });
     }
@@ -416,7 +506,12 @@ export class TurnRuntime {
 
   async dispose(): Promise<void> {
     this.#unsubscribePresence();
+    if (this.#attachmentLeaseTimer) clearInterval(this.#attachmentLeaseTimer);
+    this.#attachmentLeaseTimer = null;
     await Promise.all([...this.#workers.values()].map((worker) => this.#shutdown(worker)));
+    await Promise.all([...this.#attachmentLeases.entries()].map(([turnId, lease]) =>
+      this.#releaseAttachmentLease(turnId, lease)
+    ));
   }
 
   async #ensureWorker(meta: StoredSessionMeta): Promise<LiveWorker> {
@@ -526,9 +621,13 @@ export class TurnRuntime {
               turnId: item.turnId,
               itemId: `${item.turnId}-user`,
               clientMessageId: item.clientMessageId,
-              text: item.text,
+              text: attachmentDisplayText(item.text, item.attachments),
+              attachments: item.attachments.map(publicAttachment),
             });
-            const result = await worker.client.sessionPrompt(grokSessionId, item.text);
+            const result = await worker.client.sessionPrompt(
+              grokSessionId,
+              await buildGrokPrompt(item.text, item.attachments),
+            );
             stop = result.stopReason ?? "end_turn";
           } else {
             await worker.client.sessionCompact(grokSessionId);
@@ -549,6 +648,7 @@ export class TurnRuntime {
             reason: error instanceof Error ? error.message : "本轮失败。",
           });
         } finally {
+          await this.#releaseTaskAttachmentLease(item.turnId);
           worker.currentTurnId = null;
           worker.currentAssistantItemId = null;
           worker.tools.clear();
@@ -777,7 +877,15 @@ export class TurnRuntime {
 
   async #requireMeta(projectId: string, sessionId: string): Promise<StoredSessionMeta> {
     const existing = await this.#store.readMeta(sessionId);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.projectId !== projectId) {
+        throw new TurnRuntimeError(
+          "session_project_mismatch",
+          "这个会话不属于当前项目。",
+        );
+      }
+      return existing;
+    }
     if (sessionId.startsWith(PENDING_SESSION_PREFIX)) {
       throw new Error("会话不存在。");
     }
@@ -789,6 +897,7 @@ export class TurnRuntime {
       title: "会话",
       createdAt: Math.floor(Date.now() / 1_000),
       clientMessageIds: {},
+      clientMessagePayloads: {},
     };
     await this.#store.writeMeta(meta);
     return meta;
@@ -828,6 +937,36 @@ export class TurnRuntime {
       }];
     });
   }
+
+  async #renewAttachmentLeases(): Promise<void> {
+    if (!this.#uploads) return;
+    for (const lease of this.#attachmentLeases.values()) {
+      try {
+        const renewed = await this.#uploads.renewLease(lease.leaseId, lease.ownerId);
+        lease.expiresAtMs = renewed.expiresAtMs;
+      } catch (error) {
+        console.error(
+          `续期 Grok 附件租约失败：${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
+
+  async #releaseTaskAttachmentLease(turnId: string): Promise<void> {
+    const lease = this.#attachmentLeases.get(turnId);
+    if (lease) await this.#releaseAttachmentLease(turnId, lease);
+  }
+
+  async #releaseAttachmentLease(turnId: string, lease: AttachmentLease): Promise<void> {
+    if (this.#attachmentLeases.get(turnId) === lease) {
+      this.#attachmentLeases.delete(turnId);
+    }
+    await this.#uploads?.releaseLease(lease.leaseId, lease.ownerId).catch((error: unknown) => {
+      console.error(
+        `释放 Grok 附件租约失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+  }
 }
 
 export type ModelOption = {
@@ -835,6 +974,19 @@ export type ModelOption = {
   label: string;
   efforts: Array<{ id: string; label: string; default: boolean }>;
 };
+
+function publicAttachment(attachment: ResolvedAttachment): PublicAttachment {
+  const { path: _path, ...publicValue } = attachment;
+  return publicValue;
+}
+
+function runtimeAttachmentError(error: unknown): unknown {
+  if (error instanceof TurnRuntimeError) return error;
+  if (error instanceof GrokAttachmentError || error instanceof SharedUploadError) {
+    return new TurnRuntimeError(error.code, error.message);
+  }
+  return error;
+}
 
 function contentText(content: unknown): string {
   if (typeof content === "string") return content;

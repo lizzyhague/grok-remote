@@ -106,6 +106,64 @@ test("only accepts WebSocket upgrades from its own page", async () => {
   }
 });
 
+test("streams same-origin uploads through the shared upload adapter", async () => {
+  const harness = emptyServices();
+  const received: Buffer[] = [];
+  const server = new RemoteWebSocketServer({
+    token: "test-secret-token-value-32chars!!",
+    services: harness.services,
+    uploads: {
+      async upload(ticket, contentLength, source) {
+        assert.equal(ticket, "ticket-secret");
+        assert.equal(contentLength, 5);
+        for await (const chunk of source) received.push(Buffer.from(chunk));
+        return {
+          id: "attachment-1",
+          caller: "grok",
+          projectId: "projects/demo",
+          sessionId: "session-1",
+          originalName: "note.txt",
+          declaredMime: "text/plain",
+          detectedMime: "text/plain",
+          kind: "file",
+          size: 5,
+          sha256: "test",
+          createdAtMs: 1,
+          expiresAtMs: 2,
+        };
+      },
+    },
+  });
+  const address = await server.listen(0);
+  const origin = `http://${address.host}:${address.port}`;
+  try {
+    const uploaded = await fetch(`${origin}/attachments/upload`, {
+      method: "POST",
+      headers: { origin, "x-upload-ticket": "ticket-secret" },
+      body: Buffer.from("hello"),
+    });
+    assert.equal(uploaded.status, 201);
+    const body = await uploaded.json() as { attachment: Record<string, unknown> };
+    assert.equal(body.attachment.id, "attachment-1");
+    assert.equal("path" in body.attachment, false);
+    assert.equal(Buffer.concat(received).toString("utf8"), "hello");
+
+    const crossOrigin = await fetch(`${origin}/attachments/upload`, {
+      method: "POST",
+      headers: {
+        origin: "https://attacker.example",
+        "x-upload-ticket": "ticket-secret",
+      },
+      body: Buffer.from("hello"),
+    });
+    assert.equal(crossOrigin.status, 403);
+  } finally {
+    await withTimeout(server.close(), "关闭服务器");
+    await harness.turns.dispose();
+    harness.services.presence.dispose();
+  }
+});
+
 function emptyServices(): { services: BrowserConnectionServices; turns: TurnRuntime } {
   const presence = new PresenceTracker();
   const disk = new GrokSessionDisk("/tmp");

@@ -13,13 +13,54 @@ import {
 
 type JsonObject = Record<string, unknown>;
 
+export type ParseUpdatesOptions = {
+  /**
+   * Grok 当前有效分支上最后一个 prompt index。-1 表示有效分支还没有用户轮次；
+   * undefined 表示没有可靠的 rewind point 数据，此时只做重复 index 去重。
+   */
+  activePromptIndex?: number | undefined;
+};
+
+/**
+ * rewind_points.jsonl 会随 Grok 的当前分支一起回退，而 updates.jsonl 是追加日志。
+ * 返回 undefined 时表示文件缺失或内容不可可靠解析，调用方应保留兼容回退行为。
+ */
+export function parseActivePromptIndex(source: string | null): number | undefined {
+  if (source === null) return undefined;
+  if (!source.trim()) return -1;
+
+  let latest: number | undefined;
+  for (const rawLine of source.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isObject(parsed)) continue;
+    const promptIndex = nonNegativeInteger(parsed.prompt_index) ??
+      nonNegativeInteger(parsed.promptIndex);
+    if (promptIndex === null) continue;
+    latest = latest === undefined ? promptIndex : Math.max(latest, promptIndex);
+  }
+  return latest;
+}
+
 /**
  * 把 Grok 的 updates.jsonl 收成浏览器时间线。思考内容和 ACP 内部字段不进入浏览器。
  */
-export function parseUpdatesJsonl(source: string): TurnSnapshot[] {
-  const turns = new Map<string, MutableTurn>();
-  const order: string[] = [];
+export function parseUpdatesJsonl(
+  source: string,
+  options: ParseUpdatesOptions = {},
+): TurnSnapshot[] {
+  const turns: MutableTurn[] = [];
+  const unindexedTurns = new Map<string, MutableTurn>();
   let fallback = 0;
+  let indexedOccurrence = 0;
+  let currentIndexedTurn: MutableTurn | null = null;
+  let currentIndexedTurnAcceptsUserChunks = false;
 
   for (const rawLine of source.split("\n")) {
     const line = rawLine.trim();
@@ -40,33 +81,86 @@ export function parseUpdatesJsonl(source: string): TurnSnapshot[] {
       ...asObject(params._meta),
       ...asObject(update._meta),
     };
+    const kind = stringField(update.sessionUpdate);
     const promptId = stringField(meta.promptId) ??
       stringField(meta.prompt_id) ??
-      stringField(update.prompt_id) ??
-      `anon-${fallback}`;
-    let turn = turns.get(promptId);
-    if (!turn) {
-      turn = {
-        id: promptId,
-        status: "completed",
-        error: null,
-        items: [],
-        messages: new Map(),
-        commands: new Map(),
-        breakAssistantMessage: false,
-      };
-      turns.set(promptId, turn);
-      order.push(promptId);
-      fallback += 1;
+      stringField(update.prompt_id);
+    const promptIndex = nonNegativeInteger(meta.promptIndex) ??
+      nonNegativeInteger(meta.prompt_index) ??
+      nonNegativeInteger(update.promptIndex) ??
+      nonNegativeInteger(update.prompt_index);
+
+    let turn: MutableTurn;
+    if (kind === "user_message_chunk" && promptIndex !== null) {
+      if (
+        !currentIndexedTurn ||
+        currentIndexedTurn.promptIndex !== promptIndex ||
+        !currentIndexedTurnAcceptsUserChunks
+      ) {
+        turn = createTurn(
+          promptId ?? `prompt-${promptIndex}-${indexedOccurrence}`,
+          promptIndex,
+        );
+        indexedOccurrence += 1;
+        turns.push(turn);
+        currentIndexedTurn = turn;
+      } else {
+        turn = currentIndexedTurn;
+      }
+      currentIndexedTurnAcceptsUserChunks = true;
+    } else if (kind === "user_message_chunk") {
+      currentIndexedTurn = null;
+      currentIndexedTurnAcceptsUserChunks = false;
+      const key = promptId ?? `anon-${fallback++}`;
+      turn = unindexedTurns.get(key) ?? createTurn(key, null);
+      if (!unindexedTurns.has(key)) {
+        unindexedTurns.set(key, turn);
+        turns.push(turn);
+      }
+    } else if (currentIndexedTurn) {
+      turn = currentIndexedTurn;
+      currentIndexedTurnAcceptsUserChunks = false;
+      if (promptId) turn.id = promptId;
+    } else {
+      const key = promptId ?? `anon-${fallback++}`;
+      turn = unindexedTurns.get(key) ?? createTurn(key, null);
+      if (!unindexedTurns.has(key)) {
+        unindexedTurns.set(key, turn);
+        turns.push(turn);
+      }
     }
     applyUpdate(turn, update, meta);
   }
 
-  return order.map((id) => freezeTurn(turns.get(id)!));
+  const latestByPromptIndex = new Map<number, MutableTurn>();
+  for (const turn of turns) {
+    if (turn.promptIndex === null) continue;
+    if (
+      options.activePromptIndex !== undefined &&
+      turn.promptIndex > options.activePromptIndex
+    ) {
+      continue;
+    }
+    latestByPromptIndex.set(turn.promptIndex, turn);
+  }
+
+  return turns
+    .filter((turn) => {
+      if (turn.promptIndex === null) return true;
+      if (
+        options.activePromptIndex !== undefined &&
+        turn.promptIndex > options.activePromptIndex
+      ) {
+        return false;
+      }
+      return latestByPromptIndex.get(turn.promptIndex) === turn;
+    })
+    .map(freezeTurn);
 }
 
 type MutableTurn = {
   id: string;
+  promptIndex: number | null;
   status: TurnStatus;
   error: string | null;
   items: TimelineItem[];
@@ -74,6 +168,19 @@ type MutableTurn = {
   commands: Map<string, Extract<TimelineItem, { type: "command" }>>;
   breakAssistantMessage: boolean;
 };
+
+function createTurn(id: string, promptIndex: number | null): MutableTurn {
+  return {
+    id,
+    promptIndex,
+    status: "completed",
+    error: null,
+    items: [],
+    messages: new Map(),
+    commands: new Map(),
+    breakAssistantMessage: false,
+  };
+}
 
 function applyUpdate(turn: MutableTurn, update: JsonObject, meta: JsonObject): void {
   const kind = stringField(update.sessionUpdate);
@@ -269,6 +376,10 @@ function asObject(value: unknown): JsonObject {
 
 function stringField(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;
+}
+
+function nonNegativeInteger(value: unknown): number | null {
+  return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : null;
 }
 
 function isObject(value: unknown): value is JsonObject {

@@ -152,3 +152,64 @@ test("refuses to mutate a pending session", async (context) => {
   assert.equal(result.succeeded.length, 0);
   assert.match(result.failed[0]?.message ?? "", /还没有保存/u);
 });
+
+test("opens only the active Grok history branch after rewind", async (context) => {
+  const { catalog, disk, store, layout, projectId, group } = await createFixture(context);
+  const sessionDir = path.join(group, "session-keep");
+  await writeFile(path.join(sessionDir, "updates.jsonl"), [
+    historyUserLine(0, "base"),
+    historyAgentLine("base-turn", "base reply"),
+    historyCompletedLine("base-turn"),
+    historyUserLine(1, "rewound"),
+    historyAgentLine("old-turn", "old reply"),
+    historyCompletedLine("old-turn", "cancelled"),
+  ].join("\n"));
+  await writeFile(
+    path.join(sessionDir, "rewind_points.jsonl"),
+    `${JSON.stringify({ prompt_index: 0 })}\n`,
+  );
+
+  const service = new SessionService(catalog, disk, store, layout);
+  const opened = await service.open(projectId, "session-keep");
+  assert.deepEqual(opened.tasks.map((turn) => turn.id), ["base-turn"]);
+  assert.equal(JSON.stringify(opened.tasks).includes("rewound"), false);
+});
+
+function historyUserLine(promptIndex: number, text: string): string {
+  return JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text },
+        _meta: { promptIndex },
+      },
+    },
+  });
+}
+
+function historyAgentLine(promptId: string, text: string): string {
+  return JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text },
+      },
+      _meta: { promptId },
+    },
+  });
+}
+
+function historyCompletedLine(promptId: string, stopReason = "end_turn"): string {
+  return JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "turn_completed",
+        prompt_id: promptId,
+        stop_reason: stopReason,
+      },
+    },
+  });
+}

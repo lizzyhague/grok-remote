@@ -3,7 +3,10 @@ import { renderMarkdown, sanitizeHref } from "./markdown.js?v=11";
 const TOKEN_KEY = "grok-remote-token";
 const PROJECT_KEY = "grok-remote.project";
 const SIDEBAR_COLLAPSED_KEY = "grok-remote.sidebar-collapsed";
+const OUTBOX_KEY = "grok-remote.outbox-v1";
+const ATTACHMENT_DRAFTS_KEY = "grok-remote.attachment-drafts-v1";
 const REQUEST_TIMEOUT_MS = 15_000;
+const MAX_MESSAGE_ATTACHMENTS = 100;
 const MAX_COMMAND_OUTPUT = 100_000;
 const TOOL_TITLE_LIMIT = 48;
 const WAITING_APPROVAL_NOTICE = "正在等待审批。";
@@ -52,6 +55,9 @@ const elements = {
   noticeText: byId("notice-text"),
   noticeActionButton: byId("notice-action-button"),
   composer: byId("composer"),
+  attachmentInput: byId("attachment-input"),
+  attachmentList: byId("attachment-list"),
+  attachmentButton: byId("attachment-button"),
   messageInput: byId("message-input"),
   commandMenuButton: byId("command-menu-button"),
   rewindShortcut: byId("rewind-shortcut"),
@@ -87,6 +93,8 @@ const state = {
   composerLocksConfirms: false,
   composerFocusTimer: null,
   pendingUserMessages: new Map(),
+  pendingAttachments: [],
+  attachmentUploads: new Map(),
   assistantStreams: new Map(),
   liveAssistant: null,
   commands: new Map(),
@@ -177,6 +185,14 @@ elements.commandMenuButton.addEventListener("click", () => {
 });
 elements.rewindShortcut.addEventListener("click", () => void state.slashMenu?.runShortcut("rewind"));
 elements.alwaysApproveShortcut.addEventListener("click", () => void toggleAlwaysApprove());
+elements.attachmentButton.addEventListener("click", () => {
+  elements.attachmentInput.click();
+});
+elements.attachmentInput.addEventListener("change", () => {
+  const files = [...elements.attachmentInput.files];
+  elements.attachmentInput.value = "";
+  void uploadFiles(files);
+});
 
 elements.appView.dataset.sidebarCollapsed = String(state.sidebarCollapsed);
 syncSidebarState();
@@ -245,7 +261,9 @@ function handleSocketMessage(source) {
   if (!pending) return;
   state.pending.delete(message.requestId);
   if (message.ok === false || message.type === "error") {
-    pending.reject(new Error(message.error?.message || "请求失败。"));
+    const error = new Error(message.error?.message || "请求失败。");
+    error.code = message.error?.code;
+    pending.reject(error);
     return;
   }
   pending.resolve(message.data);
@@ -260,7 +278,9 @@ function request(type, payload = {}) {
     const requestId = `r${++state.requestId}`;
     const timer = window.setTimeout(() => {
       state.pending.delete(requestId);
-      reject(new Error("请求超时。"));
+      const error = new Error("请求超时。");
+      error.code = "request_timeout";
+      reject(error);
       try { state.socket?.close(); } catch {}
     }, REQUEST_TIMEOUT_MS);
     state.pending.set(requestId, {
@@ -308,7 +328,7 @@ async function loadSessions({ append = false } = {}) {
   const view = state.sessionView;
   const generation = ++state.sessionLoadGeneration;
   state.sessionLoading = true;
-  updateControls();
+  renderSessionList();
   try {
     const data = await request("sessions.list", {
       projectId,
@@ -323,13 +343,12 @@ async function loadSessions({ append = false } = {}) {
     state.sessions = append ? mergeSessions(state.sessions, incoming) : incoming;
     state.sessionCursor = data?.nextCursor ?? null;
     keepOpenPendingSession();
-    renderSessionList();
   } catch (error) {
     if (generation === state.sessionLoadGeneration) showNotice(errorMessage(error));
   } finally {
     if (generation === state.sessionLoadGeneration) {
       state.sessionLoading = false;
-      updateControls();
+      renderSessionList();
     }
   }
 }
@@ -385,6 +404,7 @@ function applyOpenedSession(opened) {
   state.lastSeq = opened.lastSeq ?? 0;
   state.alwaysApprove = opened.alwaysApprove === true;
   state.taskRunning = Boolean(opened.activeTaskId);
+  loadAttachmentDraftForCurrentSession();
   upsertSession(opened.session);
   updateConversationTitle();
   renderHistory(Array.isArray(opened.tasks) ? opened.tasks : [], opened.hasOlder === true);
@@ -400,6 +420,7 @@ function applyOpenedSession(opened) {
   }
   updateControls();
   renderSessionList();
+  void retryOutboxForCurrentSession();
 }
 
 function setSessionView(view, load = true) {
@@ -673,11 +694,14 @@ function trashRemainingText(purgeAt) {
 }
 
 function resetCurrentSession() {
+  abortAttachmentUploads();
   state.currentSessionId = null;
   state.sessionTitle = "";
   state.lastSeq = 0;
   state.taskRunning = false;
   state.alwaysApprove = false;
+  state.pendingAttachments = [];
+  renderAttachmentList();
   updateConversationTitle();
   clearTimeline();
   showEmpty("选择以前的会话，或者新建一个会话。");
@@ -752,31 +776,53 @@ async function sendOrStop() {
     return;
   }
   const text = elements.messageInput.value.trim();
-  if (!text || !state.currentSessionId) return;
-  if (await state.slashMenu?.submit(text)) {
+  const attachments = readyAttachments();
+  if ((!text && attachments.length === 0) || !state.currentSessionId ||
+    state.attachmentUploads.size > 0) return;
+  if (attachments.length === 0 && await state.slashMenu?.submit(text)) {
     updateControls();
     return;
   }
-  await sendMessage(text);
+  await sendMessage(text, attachments);
 }
 
-async function sendMessage(text) {
-  const clientMessageId = crypto.randomUUID();
-  const pendingMessage = addMessage("user", text, `pending-${clientMessageId}`, false);
-  state.pendingUserMessages.set(clientMessageId, { element: pendingMessage, text });
+async function sendMessage(text, attachments) {
+  const clientMessageId = createClientMessageId();
+  const displayText = displayTextWithAttachments(text, attachments);
+  const pendingMessage = addMessage("user", displayText, `pending-${clientMessageId}`, false);
+  state.pendingUserMessages.set(clientMessageId, { element: pendingMessage, text: displayText });
+  elements.messageInput.value = "";
+  setPendingAttachments(state.pendingAttachments.filter((attachment) => attachment.status !== "ready"));
+  resizeComposer();
   state.taskRunning = true;
   updateControls();
   showThinking();
+  saveOutbox({
+    clientMessageId,
+    projectId: state.projectId,
+    sessionId: state.currentSessionId,
+    text,
+    attachmentIds: attachments.map((attachment) => attachment.id),
+  });
   try {
-    const result = await request("message.send", { text, clientMessageId });
-    if (elements.messageInput.value.trim() === text) {
-      elements.messageInput.value = "";
-      resizeComposer();
-    }
+    const result = await request("message.send", {
+      text,
+      clientMessageId,
+      attachmentIds: attachments.map((attachment) => attachment.id),
+    });
+    clearOutbox(clientMessageId);
     if (result?.sessionId && result.sessionId !== state.currentSessionId) {
+      migrateLocalSessionState(state.currentSessionId, result.sessionId);
       state.currentSessionId = result.sessionId;
     }
   } catch (error) {
+    const uncertainDelivery = error?.code === "request_timeout" ||
+      state.socket?.readyState !== WebSocket.OPEN;
+    if (uncertainDelivery) {
+      showNotice("连接在确认消息前中断。消息 ID 已保留；重新打开这个会话后会安全重试。");
+      return;
+    }
+    clearOutbox(clientMessageId);
     const unconfirmedMessage = state.pendingUserMessages.get(clientMessageId);
     if (unconfirmedMessage) {
       unconfirmedMessage.element.remove();
@@ -784,9 +830,155 @@ async function sendMessage(text) {
     }
     state.taskRunning = false;
     hideThinking();
-    showNotice(errorMessage(error));
+    setPendingAttachments(mergeAttachments(attachments, state.pendingAttachments));
+    const currentDraft = elements.messageInput.value;
+    elements.messageInput.value = currentDraft.trim() ? `${text}\n\n${currentDraft}` : text;
+    resizeComposer();
+    state.slashMenu?.handleInput();
+    showNotice(`${errorMessage(error)}未发送的正文和附件已恢复。`);
   }
   updateControls();
+}
+
+async function uploadFiles(files) {
+  if (!state.currentSessionId || !state.projectId ||
+    state.socket?.readyState !== WebSocket.OPEN || files.length === 0) return;
+  const available = MAX_MESSAGE_ATTACHMENTS - state.pendingAttachments.length;
+  if (available <= 0) {
+    showNotice(`一条消息最多附加 ${MAX_MESSAGE_ATTACHMENTS} 个文件。`);
+    return;
+  }
+  if (files.length > available) {
+    showNotice(`一条消息最多附加 ${MAX_MESSAGE_ATTACHMENTS} 个文件，只处理了前 ${available} 个。`);
+  }
+  await Promise.all(files.slice(0, available).map((file) => uploadFile(file)));
+}
+
+async function uploadFile(file) {
+  const clientId = createClientMessageId();
+  const projectId = state.projectId;
+  const sessionId = state.currentSessionId;
+  const draft = {
+    clientId,
+    originalName: file.name || "未命名文件",
+    size: file.size,
+    declaredMime: file.type || "application/octet-stream",
+    status: "requesting",
+    statusText: "正在申请上传",
+  };
+  state.pendingAttachments.push(draft);
+  renderAttachmentList();
+  updateControls();
+  const controller = new AbortController();
+  state.attachmentUploads.set(clientId, controller);
+  try {
+    const ticket = await request("attachment.ticket.create", {
+      originalName: draft.originalName,
+      declaredMime: draft.declaredMime,
+      expectedSize: file.size,
+    });
+    if (state.projectId !== projectId || state.currentSessionId !== sessionId) {
+      throw new Error("上传期间切换了会话，请重新选择文件。");
+    }
+    Object.assign(draft, { status: "uploading", statusText: "正在上传" });
+    renderAttachmentList();
+    const response = await fetch("/attachments/upload", {
+      method: "POST",
+      headers: { "x-upload-ticket": ticket.ticket },
+      body: file,
+      signal: controller.signal,
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error = new Error(body?.error?.message || "附件上传失败。");
+      error.code = body?.error?.code;
+      throw error;
+    }
+    if (!body?.attachment?.id) throw new Error("上传服务没有返回附件 ID。");
+    Object.assign(draft, body.attachment, {
+      clientId,
+      status: "ready",
+      statusText: "上传完成",
+    });
+    persistCurrentAttachmentDraft();
+  } catch (error) {
+    Object.assign(draft, {
+      status: "failed",
+      statusText: error?.name === "AbortError" ? "已取消" : errorMessage(error),
+    });
+  } finally {
+    state.attachmentUploads.delete(clientId);
+    renderAttachmentList();
+    updateControls();
+  }
+}
+
+function renderAttachmentList() {
+  elements.attachmentList.replaceChildren();
+  elements.attachmentList.hidden = state.pendingAttachments.length === 0;
+  for (const attachment of state.pendingAttachments) {
+    const item = document.createElement("div");
+    item.className = "attachment-item";
+    item.dataset.status = attachment.status;
+    const name = document.createElement("span");
+    name.className = "attachment-name";
+    name.textContent = attachment.originalName || "未命名文件";
+    const meta = document.createElement("small");
+    meta.className = "attachment-meta";
+    meta.textContent = attachment.status === "ready"
+      ? `${attachment.id} · 上传完成`
+      : attachment.statusText || "处理中";
+    const remove = document.createElement("button");
+    remove.className = "quiet attachment-remove";
+    remove.type = "button";
+    remove.textContent = "移除";
+    remove.setAttribute("aria-label", `移除附件 ${attachment.originalName || "未命名文件"}`);
+    remove.addEventListener("click", () => removeAttachment(attachment));
+    item.append(name, meta, remove);
+    elements.attachmentList.append(item);
+  }
+}
+
+function removeAttachment(attachment) {
+  state.attachmentUploads.get(attachment.clientId)?.abort();
+  state.attachmentUploads.delete(attachment.clientId);
+  setPendingAttachments(state.pendingAttachments.filter((candidate) => candidate !== attachment));
+}
+
+function abortAttachmentUploads() {
+  for (const controller of state.attachmentUploads.values()) controller.abort();
+  state.attachmentUploads.clear();
+}
+
+function readyAttachments() {
+  return state.pendingAttachments.filter((attachment) =>
+    attachment.status === "ready" && typeof attachment.id === "string");
+}
+
+function setPendingAttachments(attachments) {
+  state.pendingAttachments = attachments;
+  persistCurrentAttachmentDraft();
+  renderAttachmentList();
+  updateControls();
+}
+
+function mergeAttachments(first, second) {
+  const merged = [];
+  const seen = new Set();
+  for (const attachment of [...first, ...second]) {
+    const key = attachment.id || attachment.clientId;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(attachment);
+  }
+  return merged;
+}
+
+function displayTextWithAttachments(text, attachments) {
+  if (attachments.length === 0) return text;
+  const lines = attachments.map((attachment) =>
+    `[附件：${attachment.originalName} · ${attachment.id}]`);
+  return text ? `${text}\n\n${lines.join("\n")}` : lines.join("\n");
 }
 
 async function toggleAlwaysApprove() {
@@ -800,7 +992,10 @@ function handleServerEvent(event) {
   if (typeof event.seq === "number") state.lastSeq = Math.max(state.lastSeq, event.seq);
   switch (event.type) {
     case "session.bound":
-      if (event.sessionId) state.currentSessionId = event.sessionId;
+      if (event.sessionId) {
+        migrateLocalSessionState(event.pendingId || state.currentSessionId, event.sessionId);
+        state.currentSessionId = event.sessionId;
+      }
       void loadSessions();
       break;
     case "session.changed":
@@ -1448,9 +1643,11 @@ function updateControls() {
   const connected = state.socket?.readyState === WebSocket.OPEN;
   const hasSession = Boolean(state.currentSessionId);
   const hasText = Boolean(elements.messageInput.value.trim());
+  const hasAttachments = readyAttachments().length > 0;
+  const uploading = state.attachmentUploads.size > 0;
   const confirmLocked = state.composerLocksConfirms;
   const navigationBusy = state.navigationBusy || state.sessionLoading;
-  const navigationLocked = state.busy || navigationBusy || state.taskRunning;
+  const navigationLocked = state.busy || navigationBusy || state.taskRunning || uploading;
   const projectHasActiveTask = state.sessions.some((session) => session.state === "active");
   elements.projectSelect.disabled = !connected || navigationLocked || state.selectionMode;
   elements.newSessionButton.disabled = !connected || !state.projectId || navigationLocked ||
@@ -1484,7 +1681,10 @@ function updateControls() {
     : state.busy
     ? "快捷操作执行中，可以继续写"
     : "在浏览器里写好，再发送给 Grok";
-  elements.commandMenuButton.disabled = !connected || !hasSession || state.taskRunning || state.busy || hasText;
+  elements.attachmentButton.disabled = !connected || !hasSession || navigationBusy ||
+    state.selectionMode || state.pendingAttachments.length >= MAX_MESSAGE_ATTACHMENTS;
+  elements.commandMenuButton.disabled = !connected || !hasSession || state.taskRunning ||
+    state.busy || hasText || hasAttachments;
   elements.rewindShortcut.disabled = !connected || !hasSession || state.taskRunning || state.busy || confirmLocked;
   elements.rewindShortcut.title = confirmLocked ? "请先点开输入框再回退" : "";
   elements.alwaysApproveShortcut.disabled = !connected || !hasSession || state.busy || confirmLocked;
@@ -1499,7 +1699,7 @@ function updateControls() {
   elements.taskButton.classList.toggle("danger", state.taskRunning);
   elements.taskButton.disabled = state.taskRunning
     ? !connected || !hasSession
-    : !connected || !hasSession || state.busy || !hasText;
+    : !connected || !hasSession || state.busy || uploading || (!hasText && !hasAttachments);
 }
 
 function openSidebar() {
@@ -1609,6 +1809,7 @@ function scrollToBottom(force) {
 }
 
 function showLogin() {
+  abortAttachmentUploads();
   closeSocket();
   removeStored(TOKEN_KEY);
   elements.appView.hidden = true;
@@ -1673,6 +1874,148 @@ function closeSocket() {
     state.socket.onclose = null;
     try { state.socket.close(); } catch {}
     state.socket = null;
+  }
+}
+
+async function retryOutboxForCurrentSession() {
+  if (state.socket?.readyState !== WebSocket.OPEN) return;
+  const matches = loadOutbox().filter((entry) =>
+    entry.projectId === state.projectId && entry.sessionId === state.currentSessionId
+  );
+  for (const outbox of matches) {
+    try {
+      await request("message.send", {
+        text: outbox.text,
+        clientMessageId: outbox.clientMessageId,
+        attachmentIds: outbox.attachmentIds,
+      });
+      clearOutbox(outbox.clientMessageId);
+    } catch (error) {
+      if (error?.code !== "request_timeout" && state.socket?.readyState === WebSocket.OPEN) {
+        clearOutbox(outbox.clientMessageId);
+        showNotice(`保留消息重试失败：${errorMessage(error)}`);
+      }
+      break;
+    }
+  }
+}
+
+function createClientMessageId() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function saveOutbox(entry) {
+  const entries = loadOutbox().filter((candidate) =>
+    candidate.clientMessageId !== entry.clientMessageId
+  );
+  entries.push(entry);
+  stateSet(OUTBOX_KEY, JSON.stringify(entries.slice(-20)));
+}
+
+function loadOutbox() {
+  try {
+    const value = JSON.parse(stateGet(OUTBOX_KEY) || "[]");
+    if (!Array.isArray(value)) return [];
+    return value.filter((entry) => entry && typeof entry.clientMessageId === "string" &&
+        typeof entry.projectId === "string" && typeof entry.sessionId === "string" &&
+        typeof entry.text === "string" && Array.isArray(entry.attachmentIds) &&
+        entry.attachmentIds.every((id) => typeof id === "string")
+    );
+  } catch {
+    return [];
+  }
+}
+
+function clearOutbox(clientMessageId) {
+  const entries = loadOutbox().filter((entry) => entry.clientMessageId !== clientMessageId);
+  if (entries.length === 0) removeStored(OUTBOX_KEY);
+  else stateSet(OUTBOX_KEY, JSON.stringify(entries));
+}
+
+function attachmentDraftKey(sessionId = state.currentSessionId) {
+  return state.projectId && sessionId ? `${state.projectId}\n${sessionId}` : null;
+}
+
+function loadAttachmentDraftForCurrentSession() {
+  const key = attachmentDraftKey();
+  const drafts = loadAttachmentDrafts();
+  state.pendingAttachments = key
+    ? publicAttachments(drafts[key]).map((attachment) => ({
+      ...attachment,
+      clientId: createClientMessageId(),
+      status: "ready",
+      statusText: "上传完成",
+    }))
+    : [];
+  renderAttachmentList();
+}
+
+function persistCurrentAttachmentDraft() {
+  const key = attachmentDraftKey();
+  if (!key) return;
+  const drafts = loadAttachmentDrafts();
+  const ready = readyAttachments().map(({
+    clientId: _clientId,
+    status: _status,
+    statusText: _statusText,
+    ...attachment
+  }) => attachment);
+  if (ready.length > 0) drafts[key] = ready;
+  else delete drafts[key];
+  const entries = Object.entries(drafts).slice(-50);
+  if (entries.length === 0) removeStored(ATTACHMENT_DRAFTS_KEY);
+  else stateSet(ATTACHMENT_DRAFTS_KEY, JSON.stringify(Object.fromEntries(entries)));
+}
+
+function loadAttachmentDrafts() {
+  try {
+    const value = JSON.parse(stateGet(ATTACHMENT_DRAFTS_KEY) || "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function publicAttachments(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((attachment) =>
+    attachment && typeof attachment === "object" &&
+    typeof attachment.id === "string" && attachment.id.length <= 128 &&
+    typeof attachment.originalName === "string" && attachment.originalName.length <= 1_024
+  ).map((attachment) => ({
+    id: attachment.id,
+    originalName: attachment.originalName,
+    size: Number.isFinite(attachment.size) ? attachment.size : NaN,
+    declaredMime: typeof attachment.declaredMime === "string" ? attachment.declaredMime : "",
+    detectedMime: typeof attachment.detectedMime === "string" ? attachment.detectedMime : "",
+    kind: attachment.kind === "image" ? "image" : "file",
+    expiresAtMs: Number.isFinite(attachment.expiresAtMs) ? attachment.expiresAtMs : null,
+  }));
+}
+
+function migrateLocalSessionState(previousSessionId, nextSessionId) {
+  if (!previousSessionId || !nextSessionId || previousSessionId === nextSessionId) return;
+  const outbox = loadOutbox();
+  let outboxChanged = false;
+  for (const entry of outbox) {
+    if (entry.projectId === state.projectId && entry.sessionId === previousSessionId) {
+      entry.sessionId = nextSessionId;
+      outboxChanged = true;
+    }
+  }
+  if (outboxChanged) stateSet(OUTBOX_KEY, JSON.stringify(outbox));
+
+  const drafts = loadAttachmentDrafts();
+  const previousKey = attachmentDraftKey(previousSessionId);
+  const nextKey = attachmentDraftKey(nextSessionId);
+  if (previousKey && nextKey && drafts[previousKey]) {
+    drafts[nextKey] = publicAttachments(mergeAttachments(
+      Array.isArray(drafts[nextKey]) ? drafts[nextKey] : [],
+      drafts[previousKey],
+    ));
+    delete drafts[previousKey];
+    stateSet(ATTACHMENT_DRAFTS_KEY, JSON.stringify(drafts));
   }
 }
 

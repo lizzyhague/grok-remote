@@ -14,6 +14,7 @@
 浏览器 PWA
   → HTTPS（Tailscale Serve 或公网反代）
   → 127.0.0.1:8788 上的 Grok Remote
+  → Unix socket 上的共享 ai-remote-upload（仅附件）
   → 仅在需要执行时：grok agent stdio（ACP JSON-RPC）
   → Grok 原生会话 ~/.grok/sessions/<按工作目录分组>/<session-id>/
 ```
@@ -26,6 +27,7 @@
 - Node.js 24 或更新版本
 - 已安装并登录 `grok`
 - 一份项目白名单 `projects.json`（可与其它 Remote 共用，用 `GROK_REMOTE_PROJECTS_CONFIG` 指向）
+- 使用附件时，需要与 Grok Remote 同一 Unix 账号运行的共享 `ai-remote-upload` 服务
 
 ## 环境变量
 
@@ -39,6 +41,7 @@
 | `GROK_REMOTE_STATE_DIR` | 可选。本应用事件日志、权限模式、归档和回收站标记；默认 `~/.grok-remote` |
 | `GROK_REMOTE_MAX_WORKERS` | 可选。同时活动的 Worker 上限，默认 2；到限拒绝新 Worker |
 | `GROK_REMOTE_MIN_FREE_MEMORY_MB` | 可选。启动 Worker 前最低可用内存，默认 512 |
+| `AI_REMOTE_UPLOAD_SOCKET` | 可选。共享上传服务 Unix socket；默认 `~/.local/share/ai-remote/upload.sock` |
 
 真实令牌和本机项目路径不要进 git。
 
@@ -59,9 +62,14 @@ GROK_REMOTE_TOKEN="$(openssl rand -hex 32)" \
 
 归档和回收站都是本应用自己的标记，不改 Grok CLI 的会话文件。侧栏有最近会话、已归档、回收站三个视图，交互与 Codex Remote 一致。回收站里的会话 30 天后自动永久删除。没发过第一条消息的空会话刷新后不会留在列表里。
 
-## 第一版明确不做
+## 附件
 
-- 文件上传
+附件复用 Codex Remote 提供的共享上传服务：浏览器先通过已认证 WebSocket 申请一次性票据，再把原始字节流式发送到同源 `/attachments/upload`。Grok Remote 不复制附件存储，只保存公开元数据和附件 ID，并在任务排队、运行和等待审批期间维护租约。
+
+一条消息最多引用 100 个附件，单文件最多 25 MiB，且发送给 Grok 的附件原始字节合计最多 25 MiB。PNG、JPEG、GIF 和 WebP 映射为 ACP 图片块；UTF-8 文本映射为 ACP 内嵌文本资源；PDF 和其它二进制文件映射为 ACP blob 资源。最终能否理解某种二进制格式仍取决于当前 Grok 版本和可用工具。
+
+## 明确不做
+
 - 每个会话常驻一个 Grok 进程
 - 全站共用一个长驻 `grok agent`
 - 浏览器直连 `grok agent serve`

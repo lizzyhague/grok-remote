@@ -38,3 +38,9 @@ cp deploy/grok-remote.env.example deploy/grok-remote.env
 编辑这两个本地文件后，用 `GROK_REMOTE_PROJECTS_CONFIG` 指向实际的 `projects.json`。生产部署则把同样的值安装到 `/etc` 或部署者选定的私有配置位置。
 
 如果多套 Remote 需要共用项目白名单，它们可以指向同一份未纳入 Git 的 `projects.json`；公共仓库无需知道该文件在某台主机上的实际位置。
+
+## 共享附件服务
+
+附件功能使用 Codex Remote 仓库提供的独立 `ai-remote-upload` 服务。Grok Remote 与该服务必须使用同一个 Unix 账号，才能访问权限为 `0600` 的 socket 和附件文件；不要为了跨账号使用而放宽权限。
+
+`AI_REMOTE_UPLOAD_SOCKET` 必须与共享服务配置一致，默认是 `~/.local/share/ai-remote/upload.sock`。共享服务不可用时，纯文本 Grok Remote 仍可启动和使用，附件票据或上传会明确失败。共享服务的安装、清理、备份和恢复步骤以 Codex Remote 的 `docs/shared-upload-integration.md` 与 `docs/operations.md` 为准。

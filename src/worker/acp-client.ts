@@ -70,6 +70,16 @@ export type AcpRewindResult = {
   error?: string | null;
 };
 
+export type AcpPromptContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string; uri?: string }
+  | {
+    type: "resource";
+    resource:
+      | { uri: string; mimeType?: string; text: string }
+      | { uri: string; mimeType?: string; blob: string };
+  };
+
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -197,10 +207,13 @@ export class AcpClient extends EventEmitter {
     }) as AcpRewindResult;
   }
 
-  async sessionPrompt(sessionId: string, text: string): Promise<{ stopReason?: string }> {
+  async sessionPrompt(
+    sessionId: string,
+    input: string | AcpPromptContent[],
+  ): Promise<{ stopReason?: string }> {
     return await this.request("session/prompt", {
       sessionId,
-      prompt: [{ type: "text", text }],
+      prompt: typeof input === "string" ? [{ type: "text", text: input }] : input,
     }) as { stopReason?: string };
   }
 
