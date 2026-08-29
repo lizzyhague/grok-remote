@@ -12,8 +12,8 @@
 
 ```text
 浏览器 PWA
-  → HTTPS（Tailscale Serve 或公网反代）
-  → 127.0.0.1:8788 上的 Grok Remote
+  → HTTPS :8788（nest 上的 Tailscale Serve 入口）
+  → 127.0.0.1:3082 上的 Grok Remote Node 后端
   → Unix socket 上的共享 ai-remote-upload（仅附件）
   → 仅在需要执行时：grok agent stdio（ACP JSON-RPC）
   → Grok 原生会话 ~/.grok/sessions/<按工作目录分组>/<session-id>/
@@ -34,7 +34,7 @@
 | 变量 | 作用 |
 | --- | --- |
 | `GROK_REMOTE_TOKEN` | WebSocket 登录令牌，至少 32 个字符 |
-| `GROK_REMOTE_PORT` | 回环端口，默认 8788 |
+| `GROK_REMOTE_PORT` | Node 回环端口；nest 部署显式使用 3082，未设置时程序默认 8788 |
 | `GROK_REMOTE_ALLOWED_ORIGINS` | 额外允许的 Origin，逗号分隔 |
 | `GROK_REMOTE_PROJECTS_CONFIG` | 项目白名单文件路径 |
 | `GROK_BIN` | `grok` 可执行文件；默认从 `PATH` 查找 |
@@ -52,11 +52,13 @@ npm ci
 cp config/projects.example.json config/projects.json
 # 编辑 config/projects.json，把示例项目根目录换成实际位置
 GROK_REMOTE_TOKEN="$(openssl rand -hex 32)" \
+  GROK_REMOTE_PORT=3082 \
   GROK_REMOTE_PROJECTS_CONFIG="$PWD/config/projects.json" \
   npm start
 ```
 
-健康检查：`http://127.0.0.1:8788/healthz`
+nest 部署的健康检查：`http://127.0.0.1:3082/healthz`。Tailnet 侧的 HTTPS `:8788`
+是 Tailscale Serve 入口，不是 Node 的本地监听地址。
 
 ## 会话整理
 

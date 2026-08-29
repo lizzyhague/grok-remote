@@ -26,6 +26,10 @@
 
 这些不是程序的硬编码要求。使用其它位置时，应在本机环境文件和 systemd unit 中同时调整，公共文档仍保留通用示例。
 
+nest 当前把 `GROK_REMOTE_PORT` 显式设为 `3082`，由 Tailscale Serve 在 tailnet 的
+HTTPS `:8788` 反向代理到 `http://127.0.0.1:3082`。健康检查应访问后一个地址；
+不要把 Tailscale 的入口监听误认成 Node 后端监听。
+
 ## 本地配置
 
 开发环境可以从模板建立被 Git 忽略的配置：
