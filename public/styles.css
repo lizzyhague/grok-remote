@@ -586,7 +586,7 @@ button.small {
 .markdown-body ul,
 .markdown-body ol,
 .markdown-body blockquote,
-.markdown-body pre,
+.markdown-code-block,
 .markdown-table-wrap {
   margin: 0.7rem 0;
 }
@@ -631,13 +631,21 @@ button.small {
   font-size: 0.9em;
 }
 
-.markdown-body pre {
+.markdown-code-block {
+  position: relative;
   max-width: 100%;
-  overflow: auto;
-  padding: 0.75rem;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: #11141a;
+}
+
+.markdown-body pre {
+  max-width: 100%;
+  margin: 0;
+  overflow: auto;
+  padding: 0.75rem;
+  border-radius: inherit;
+  background: transparent;
   white-space: pre;
 }
 
@@ -645,6 +653,40 @@ button.small {
   padding: 0;
   background: none;
   font-size: 0.84rem;
+}
+
+.markdown-code-copy {
+  position: absolute;
+  z-index: 1;
+  top: 0.45rem;
+  right: 0.45rem;
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 6px;
+  /* 按钮压在代码第一行上，底色必须不透明，阴影用来和下面的字拉开层次。 */
+  background: var(--panel-raised);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 45%);
+  color: #d1d5db;
+}
+
+.markdown-code-copy[data-state="success"] {
+  border-color: #3f765e;
+  color: var(--accent);
+}
+
+.markdown-code-copy[data-state="error"] {
+  border-color: #7f1d1d;
+  color: var(--danger);
+}
+
+.markdown-code-copy-icon {
+  width: 1.05rem;
+  height: 1.05rem;
 }
 
 .markdown-body a {

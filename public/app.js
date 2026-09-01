@@ -1,4 +1,4 @@
-import { renderMarkdown, sanitizeHref } from "./markdown.js?v=11";
+import { renderMarkdown, sanitizeHref } from "./markdown.js?v=13";
 
 const TOKEN_KEY = "grok-remote-token";
 const PROJECT_KEY = "grok-remote.project";
