@@ -1,14 +1,16 @@
 :root {
   color-scheme: dark;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #111318;
-  color: #eceef2;
-  --panel: #191c23;
-  --panel-raised: #222630;
-  --border: #343946;
-  --muted: #9ca3af;
-  --accent: #a7f3d0;
-  --accent-ink: #102019;
+  /* Identity matches the icon: gold on purple-black. Connecting/warning
+     stay indigo/orange so they don't collide with the brand gold. */
+  background: #1c1824;
+  color: #eeeaf2;
+  --panel: #252030;
+  --panel-raised: #2e283a;
+  --border: #403a4e;
+  --muted: #a8a2b0;
+  --accent: #f3c56b;
+  --accent-ink: #1c1408;
   --danger: #fca5a5;
   --max-width: 920px;
   --sidebar-width: clamp(260px, 20vw, 304px);
@@ -26,7 +28,7 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background: #111318;
+  background: #1c1824;
 }
 
 body {
@@ -64,12 +66,12 @@ button {
   min-height: 42px;
   padding: 0.55rem 0.9rem;
   background: var(--panel-raised);
-  color: #f4f5f7;
+  color: #f4f1f7;
   cursor: pointer;
 }
 
 button:hover:not(:disabled) {
-  border-color: #6b7280;
+  border-color: #6a6278;
 }
 
 button:disabled {
@@ -78,7 +80,7 @@ button:disabled {
 }
 
 button.primary {
-  border-color: #86efac;
+  border-color: #e8b55a;
   background: var(--accent);
   color: var(--accent-ink);
   font-weight: 700;
@@ -107,6 +109,8 @@ button.small {
 }
 
 .login-card {
+  display: flex;
+  flex-direction: column;
   width: min(100%, 420px);
   padding: 2rem;
   border: 1px solid var(--border);
@@ -128,13 +132,13 @@ button.small {
   display: block;
   margin: 1.3rem 0 0.4rem;
   font-size: 0.9rem;
-  color: #d1d5db;
+  color: #d4d0da;
 }
 
 .login-card input {
   width: 100%;
   padding: 0.75rem;
-  background: #0f1116;
+  background: #14111c;
   color: #fff;
 }
 
@@ -189,7 +193,7 @@ button.small {
   height: 100dvh;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto auto;
-  background: #111318;
+  background: #1c1824;
 }
 
 .session-sidebar {
@@ -201,7 +205,7 @@ button.small {
   grid-template-rows: auto auto auto auto minmax(0, 1fr) auto auto;
   overflow: hidden;
   border-right: 1px solid var(--border);
-  background: #151820;
+  background: #201c2a;
   transition: opacity 120ms ease;
 }
 
@@ -232,6 +236,19 @@ button.small {
   border-bottom: 1px solid var(--border);
 }
 
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.sidebar-logo {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
 .project-controls {
   min-width: var(--sidebar-width);
   padding: 0.75rem;
@@ -250,8 +267,8 @@ button.small {
 .session-search input {
   min-height: 42px;
   padding: 0 0.7rem;
-  background: #101319;
-  color: #f3f4f6;
+  background: #14111c;
+  color: #f3f1f6;
 }
 
 .session-search {
@@ -278,11 +295,19 @@ button.small {
   min-height: 44px;
   justify-content: space-between;
   border-bottom: 1px solid var(--border);
-  background: #1b211f;
+  background: rgb(243 197 107 / 10%);
+}
+
+.selection-heading-end {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: auto;
 }
 
 .selection-heading strong {
   font-size: 0.9rem;
+  white-space: nowrap;
 }
 
 .session-list {
@@ -304,11 +329,11 @@ button.small {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
-  border-bottom: 1px solid rgb(52 57 70 / 58%);
+  border-bottom: 1px solid rgb(64 58 78 / 58%);
 }
 
 .session-item[data-current="true"] {
-  background: #23302b;
+  background: rgb(243 197 107 / 14%);
 }
 
 .session-open,
@@ -346,7 +371,7 @@ button.small {
 }
 
 .session-item-title {
-  color: #f3f4f6;
+  color: #f3f1f6;
   font-size: 0.93rem;
   font-weight: 650;
 }
@@ -359,7 +384,7 @@ button.small {
 }
 
 .session-item-meta[data-warning="true"] {
-  color: #fcd34d;
+  color: #fdba74;
 }
 
 .session-menu-trigger {
@@ -385,7 +410,7 @@ button.small {
   width: 1.1rem;
   height: 1.1rem;
   margin: 0;
-  accent-color: #86efac;
+  accent-color: #f3c56b;
 }
 
 .session-select-label:has(input:disabled) {
@@ -408,11 +433,11 @@ button.small {
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
   border-top: 1px solid var(--border);
-  background: #151820;
+  background: #201c2a;
 }
 
 .session-destinations button[data-active="true"] {
-  border-color: #6ee7b7;
+  border-color: #e8b55a;
   color: var(--accent);
 }
 
@@ -448,7 +473,7 @@ button.small {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--border);
-  background: #151820;
+  background: #201c2a;
 }
 
 .conversation-heading {
@@ -484,7 +509,7 @@ button.small {
   height: 0.52rem;
   margin-right: 0.35rem;
   border-radius: 50%;
-  background: #f59e0b;
+  background: #818cf8;
 }
 
 .connection-status[data-state="connected"]::before {
@@ -568,8 +593,8 @@ button.small {
 
 .message.user {
   margin-left: auto;
-  background: #25362f;
-  border-color: #385647;
+  background: rgb(243 197 107 / 16%);
+  border-color: rgb(243 197 107 / 36%);
 }
 
 .message.assistant {
@@ -641,7 +666,7 @@ button.small {
 .markdown-body code {
   padding: 0.12rem 0.3rem;
   border-radius: 5px;
-  background: #11141a;
+  background: #14111c;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 0.9em;
 }
@@ -651,7 +676,7 @@ button.small {
   max-width: 100%;
   border: 1px solid var(--border);
   border-radius: 9px;
-  background: #11141a;
+  background: #14111c;
 }
 
 .markdown-body pre {
@@ -686,11 +711,11 @@ button.small {
   /* 按钮压在代码第一行上，底色必须不透明，阴影用来和下面的字拉开层次。 */
   background: var(--panel-raised);
   box-shadow: 0 2px 8px rgb(0 0 0 / 45%);
-  color: #d1d5db;
+  color: #d4d0da;
 }
 
 .markdown-code-copy[data-state="success"] {
-  border-color: #3f765e;
+  border-color: #8a7038;
   color: var(--accent);
 }
 
@@ -737,7 +762,7 @@ button.small {
 }
 
 .markdown-body th {
-  background: #11141a;
+  background: #14111c;
   font-weight: 650;
 }
 
@@ -760,14 +785,14 @@ button.small {
   margin: 0 0 0.9rem;
   border: 1px solid var(--border);
   border-radius: 11px;
-  background: #101218;
-  color: #d1d5db;
+  background: #14111c;
+  color: #d4d0da;
 }
 
 .command summary {
   padding: 0.65rem 0.8rem;
   cursor: pointer;
-  color: #c7cad1;
+  color: #c9c4d0;
   overflow-wrap: anywhere;
 }
 
@@ -803,11 +828,11 @@ button.small {
 }
 
 .command-input {
-  color: #e5e7eb;
+  color: #e8e4ee;
 }
 
 .command-output {
-  color: #b9f6d2;
+  color: #e8d5a0;
 }
 
 .command-resources {
@@ -847,7 +872,7 @@ button.small {
 .notice {
   padding: 0.7rem max(1rem, calc((100% - var(--max-width)) / 2));
   border-top: 1px solid var(--border);
-  background: #1d2028;
+  background: #252030;
 }
 
 .approval-card {
@@ -869,7 +894,7 @@ button.small {
 }
 
 .notice {
-  color: #fde68a;
+  color: #fdba74;
   font-size: 0.9rem;
 }
 
@@ -888,7 +913,7 @@ button.small {
 .composer {
   padding: 0.75rem max(1rem, calc((100% - var(--max-width)) / 2)) max(0.75rem, env(safe-area-inset-bottom));
   border-top: 1px solid var(--border);
-  background: #151820;
+  background: #201c2a;
 }
 
 .composer textarea {
@@ -898,8 +923,8 @@ button.small {
   resize: none;
   overflow-y: auto;
   padding: 0.8rem 0.9rem;
-  background: #0f1116;
-  color: #f9fafb;
+  background: #14111c;
+  color: #f4f1f7;
   line-height: 1.45;
 }
 
@@ -919,7 +944,7 @@ button.small {
   padding: 0.45rem 0.55rem 0.45rem 0.7rem;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #0f1116;
+  background: #14111c;
 }
 
 .attachment-item[data-status="failed"] {
@@ -959,7 +984,7 @@ button.small {
 select:focus,
 input:focus,
 button:focus-visible {
-  outline: 2px solid #6ee7b7;
+  outline: 2px solid #e8b55a;
   outline-offset: 2px;
 }
 
@@ -1017,7 +1042,7 @@ button:focus-visible {
   .timeline:hover,
   .composer textarea:hover,
   .composer textarea:focus {
-    scrollbar-color: #5f6673 transparent;
+    scrollbar-color: #5c556c transparent;
   }
 
   .session-list::-webkit-scrollbar,
@@ -1045,7 +1070,7 @@ button:focus-visible {
   .timeline:hover::-webkit-scrollbar-thumb,
   .composer textarea:hover::-webkit-scrollbar-thumb,
   .composer textarea:focus::-webkit-scrollbar-thumb {
-    background-color: #5f6673;
+    background-color: #5c556c;
   }
 }
 
@@ -1184,9 +1209,9 @@ button:focus-visible {
   max-height: min(52dvh, 430px);
   overflow-y: auto;
   padding: 0.4rem;
-  border: 1px solid #4b5563;
+  border: 1px solid #4d465c;
   border-radius: 14px;
-  background: #171a21;
+  background: #252030;
   box-shadow: 0 -18px 55px rgb(0 0 0 / 38%);
 }
 
@@ -1199,7 +1224,7 @@ button:focus-visible {
   align-items: center;
   gap: 0.65rem;
   padding: 0.55rem 0.65rem;
-  background: #171a21;
+  background: #252030;
   color: var(--muted);
   font-size: 0.82rem;
 }
@@ -1223,7 +1248,7 @@ button:focus-visible {
 }
 
 .slash-item + .slash-item {
-  border-top: 1px solid rgb(52 57 70 / 65%);
+  border-top: 1px solid rgb(64 58 78 / 65%);
   border-radius: 0;
 }
 
@@ -1234,7 +1259,7 @@ button:focus-visible {
 
 .slash-item strong {
   margin-bottom: 0.18rem;
-  color: #f3f4f6;
+  color: #f3f1f6;
 }
 
 .slash-item span {
@@ -1244,7 +1269,7 @@ button:focus-visible {
 }
 
 .slash-item[aria-selected="true"] {
-  background: #26352f;
+  background: rgb(243 197 107 / 14%);
 }
 
 .slash-item[data-danger="true"] strong {
@@ -1264,8 +1289,8 @@ button:focus-visible {
   padding: 0.75rem 0.9rem;
   border-left: 3px solid var(--accent);
   border-radius: 5px 12px 12px 5px;
-  background: #19231f;
-  color: #d7e5de;
+  background: rgb(243 197 107 / 10%);
+  color: #ead9b0;
   font-size: 0.9rem;
 }
 
@@ -1284,8 +1309,8 @@ button:focus-visible {
 }
 
 /*
- * Grok-specific capability differences. Keep the shared styles above aligned
- * with Codex Remote; product-specific selectors belong in this final section.
+ * Shared layout stays aligned with Codex Remote. Colors above are Grok's
+ * gold-on-purple-black identity. Product-specific selectors belong here.
  */
 .always-approve-shortcut[aria-pressed="true"] {
   border-color: #ef4444;
