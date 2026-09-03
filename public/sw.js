@@ -1,8 +1,8 @@
-const CACHE_NAME = "grok-remote-shell-v21";
+const CACHE_NAME = "grok-remote-shell-v22";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=19",
+  "/styles.css?v=20",
   "/boot.js?v=11",
   "/app.js?v=16",
   "/markdown.js?v=13",
