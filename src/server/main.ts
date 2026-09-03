@@ -29,7 +29,7 @@ export async function main(): Promise<void> {
   if (!token || token.length < 32) {
     throw new Error("请设置至少 32 个字符的 GROK_REMOTE_TOKEN。");
   }
-  const port = readPort(process.env.GROK_REMOTE_PORT ?? "8788");
+  const port = readPort(process.env.GROK_REMOTE_PORT ?? "3000");
   const configPath = process.env.GROK_REMOTE_PROJECTS_CONFIG ??
     path.resolve("config/projects.json");
   const grokBin = process.env.GROK_BIN?.trim() || "grok";

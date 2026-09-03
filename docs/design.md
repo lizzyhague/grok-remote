@@ -19,7 +19,7 @@
 | 应用边界 | 与 Codex Remote 是两个独立项目、服务和入口，不合并运行时 |
 | UI 基线 | 布局、视觉和通用交互与 Codex Remote 保持一致；两边 UI 修改应同步 |
 | 功能 | Codex Remote 里有、Grok 也有的能力都要有；名字跟 Grok，不跟 Codex 对齐 |
-| 端口链路 | Tailscale HTTPS `:8788` → Node `127.0.0.1:3082` |
+| 端口链路 | HTTPS 入口 → Node `127.0.0.1:<GROK_REMOTE_PORT>`；两端端口由部署者分别选择 |
 | 监听 | 只绑 `127.0.0.1`；远程走 Tailscale Serve 或公网 HTTPS 反代 |
 | 环境变量 | `GROK_REMOTE_*` |
 | 项目白名单 | 与 Codex Remote 共用同一份 `projects.json`，用环境变量指向路径 |
@@ -46,8 +46,8 @@
 
 ```text
 手机或电脑浏览器 PWA
-  → HTTPS :8788（nest 上的 Tailscale Serve 入口）
-  → 127.0.0.1:3082 上的 Grok Remote（共享 Node 后端）
+  → HTTPS 入口（Tailscale Serve 或其它反向代理）
+  → 127.0.0.1:<GROK_REMOTE_PORT> 上的 Grok Remote
   → Unix socket 上的共享 ai-remote-upload（仅附件）
   → 仅在需要执行时：按需 Worker = grok agent stdio（ACP JSON-RPC）
   → Grok 原生会话 ~/.grok/sessions/<按工作目录分组>/<session-id>/
@@ -62,7 +62,7 @@
 | 环境变量 | 作用 |
 | --- | --- |
 | `GROK_REMOTE_TOKEN` | 浏览器 WebSocket 登录令牌，至少 32 个字符 |
-| `GROK_REMOTE_PORT` | Node 回环端口；nest 部署显式使用 3082，未设置时程序默认 8788 |
+| `GROK_REMOTE_PORT` | Node 回环端口；未设置时程序默认 3000，正式部署建议显式设置 |
 | `GROK_REMOTE_ALLOWED_ORIGINS` | 额外允许的 Origin，逗号分隔；通常留空 |
 | `GROK_REMOTE_PROJECTS_CONFIG` | 项目白名单文件路径 |
 | `GROK_BIN` | `grok` 可执行文件；默认从 `PATH` 查找 |
@@ -190,8 +190,8 @@ Worker 是独立进程组里的 `grok agent stdio`，不是 Node `worker_threads
 - 同一会话不会两个 Worker 一起跑；结束后不留 Grok 子进程。
 - 只看历史时，进程列表里不应出现该会话的 `grok agent`。
 - 命令标题过长被截断，点开可见全文。
-- Node 本地 `127.0.0.1:3082` 健康检查可用；Tailnet 的 HTTPS `:8788`
-  能通过 Tailscale Serve 到达该后端，且不与其它 Remote 的入口或回环端口冲突。
+- 配置的 Node 回环端口健康检查可用；配置的 HTTPS 入口能通过反向代理到达该后端，
+  且不与同一主机上的其它入口或回环端口冲突。
 
 ## 12. 实现顺序建议
 
