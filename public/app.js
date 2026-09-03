@@ -44,7 +44,6 @@ const elements = {
   sidebarBackdrop: byId("sidebar-backdrop"),
   currentSessionTitle: byId("current-session-title"),
   connectionStatus: byId("connection-status"),
-  changeTokenButton: byId("change-token-button"),
   timeline: byId("timeline"),
   historyLoader: byId("history-loader"),
   loadOlderButton: byId("load-older-button"),
@@ -108,7 +107,6 @@ elements.tokenForm.addEventListener("submit", (event) => {
   const token = elements.tokenInput.value.trim();
   if (token) void connect(token);
 });
-elements.changeTokenButton.addEventListener("click", showLogin);
 elements.projectSelect.addEventListener("change", () => {
   state.projectId = elements.projectSelect.value;
   stateSet(PROJECT_KEY, state.projectId);
