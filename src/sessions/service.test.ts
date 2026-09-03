@@ -117,6 +117,30 @@ test("restores a trashed archived session back to archived", async (context) => 
   assert.equal((await service.list(projectId, { view: "archived" })).sessions[0]?.id, "session-keep");
 });
 
+test("permanently deletes selected trash sessions immediately", async (context) => {
+  const { catalog, disk, store, layout, projectId } = await createFixture(context);
+  const service = new SessionService(catalog, disk, store, layout);
+  await service.moveToTrash(projectId, ["session-keep"], "active");
+
+  assert.deepEqual(await service.deleteTrash(projectId, ["session-keep"]), {
+    succeeded: ["session-keep"],
+    failed: [],
+  });
+  assert.equal(layout.isTrashed("session-keep"), false);
+  assert.equal(await disk.read("session-keep"), null);
+  assert.deepEqual((await service.list(projectId)).sessions, []);
+  assert.deepEqual((await service.list(projectId, { view: "trash" })).sessions, []);
+});
+
+test("refuses to permanently delete a session that is not in trash", async (context) => {
+  const { catalog, disk, store, layout, projectId } = await createFixture(context);
+  const service = new SessionService(catalog, disk, store, layout);
+  const result = await service.deleteTrash(projectId, ["session-keep"]);
+  assert.equal(result.succeeded.length, 0);
+  assert.match(result.failed[0]?.message ?? "", /只能永久删除回收站里的会话/u);
+  assert.equal((await service.list(projectId)).sessions[0]?.id, "session-keep");
+});
+
 test("permanently deletes trash entries after thirty days", async (context) => {
   const { catalog, disk, store, layout, projectId, group, projectPath } = await createFixture(context);
   await writeSummary(path.join(group, "session-old"), "session-old", projectPath, "Old");

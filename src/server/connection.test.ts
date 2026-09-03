@@ -310,6 +310,9 @@ function makeServices(turns: TurnApi): BrowserConnectionServices {
       async restoreTrash(_projectId, sessionIds) {
         return { succeeded: sessionIds, failed: [] };
       },
+      async deleteTrash(_projectId, sessionIds) {
+        return { succeeded: sessionIds, failed: [] };
+      },
     },
     turns,
     commands: new CommandRunner(

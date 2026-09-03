@@ -247,6 +247,20 @@ export class SessionService {
     });
   }
 
+  deleteTrash(projectId: string, sessionIds: string[]): Promise<SessionMutationResult> {
+    return this.#mutateMany(projectId, sessionIds, "delete", async (resolvedProjectId, sessionId) => {
+      const entry = this.#layout.trashEntry(sessionId);
+      if (!entry || entry.projectId !== resolvedProjectId) {
+        throw new Error("只能永久删除回收站里的会话。");
+      }
+      if (this.#isRunning(sessionId)) {
+        throw new Error("这个会话仍有任务正在运行，暂时不能整理。");
+      }
+      await this.#permanentlyDelete(sessionId);
+      await this.#layout.removeTrash(sessionId);
+    });
+  }
+
   purgeExpired(): Promise<TrashCleanupResult> {
     return this.#serializeMutation(async () => {
       const threshold = this.#now() - TRASH_RETENTION_SECONDS;

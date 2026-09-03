@@ -217,6 +217,9 @@ function emptyServices(): { services: BrowserConnectionServices; turns: TurnRunt
       async restoreTrash(_projectId: string, sessionIds: string[]) {
         return { succeeded: sessionIds, failed: [] };
       },
+      async deleteTrash(_projectId: string, sessionIds: string[]) {
+        return { succeeded: sessionIds, failed: [] };
+      },
     },
     turns,
     commands: new CommandRunner(turns, disk, store),

@@ -53,6 +53,7 @@ export interface SessionsApi {
     origin: LayoutOrigin,
   ): Promise<SessionMutationResult>;
   restoreTrash(projectId: string, sessionIds: string[]): Promise<SessionMutationResult>;
+  deleteTrash(projectId: string, sessionIds: string[]): Promise<SessionMutationResult>;
   onChange?(listener: (event: SessionChangeEvent) => void): () => void;
 }
 
@@ -289,7 +290,7 @@ export class BrowserConnection {
   async #mutateSessions(
     projectId: string,
     sessionIds: string[],
-    action: "archive" | "unarchive" | "trash-active" | "trash-archived" | "restore-trash",
+    action: "archive" | "unarchive" | "trash-active" | "trash-archived" | "restore-trash" | "delete-trash",
   ): Promise<SessionMutationResult> {
     if (!this.#services.locks.acquire(projectId, this.#id, sessionIds[0] ?? "mutate")) {
       throw new BrowserRequestError("project_busy", "这个项目正在执行任务，暂时不能整理会话。");
@@ -303,9 +304,12 @@ export class BrowserConnection {
         ? await this.#services.sessions.moveToTrash(projectId, sessionIds, "active")
         : action === "trash-archived"
         ? await this.#services.sessions.moveToTrash(projectId, sessionIds, "archived")
+        : action === "delete-trash"
+        ? await this.#services.sessions.deleteTrash(projectId, sessionIds)
         : await this.#services.sessions.restoreTrash(projectId, sessionIds);
       const removesOpenSession = action === "archive" ||
-        action === "trash-active" || action === "trash-archived";
+        action === "trash-active" || action === "trash-archived" ||
+        action === "delete-trash";
       if (removesOpenSession && this.#sessionId && result.succeeded.includes(this.#sessionId)) {
         this.#clearSession();
       }
