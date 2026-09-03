@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 
-import { AcpClient } from "./acp-client.ts";
+import { AcpClient, GROK_REMOTE_SESSION_RULES } from "./acp-client.ts";
 
 test("initializes without advertising fs or terminal capabilities", async () => {
   const { proc, stdin, stdout } = fakeProcess();
@@ -35,10 +35,13 @@ test("explicitly sends the selected permission mode for new and resumed sessions
   const newRequest = JSON.parse(await readLine(stdin)) as {
     id: number;
     method: string;
-    params: { _meta: { yoloMode: boolean } };
+    params: { _meta: { yoloMode: boolean; rules?: string } };
   };
   assert.equal(newRequest.method, "session/new");
-  assert.deepEqual(newRequest.params._meta, { yoloMode: false });
+  assert.deepEqual(newRequest.params._meta, {
+    yoloMode: false,
+    rules: GROK_REMOTE_SESSION_RULES,
+  });
   stdout.write(`${JSON.stringify({
     jsonrpc: "2.0",
     id: newRequest.id,
@@ -50,10 +53,11 @@ test("explicitly sends the selected permission mode for new and resumed sessions
   const resumeRequest = JSON.parse(await readLine(stdin)) as {
     id: number;
     method: string;
-    params: { _meta: { yoloMode: boolean } };
+    params: { _meta: { yoloMode: boolean; rules?: string } };
   };
   assert.equal(resumeRequest.method, "session/resume");
   assert.deepEqual(resumeRequest.params._meta, { yoloMode: true });
+  assert.equal("rules" in resumeRequest.params._meta, false);
   stdout.write(`${JSON.stringify({
     jsonrpc: "2.0",
     id: resumeRequest.id,

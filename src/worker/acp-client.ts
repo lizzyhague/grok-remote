@@ -86,6 +86,14 @@ type Pending = {
 };
 
 /**
+ * 新建 Grok 会话时追加到系统提示。只在 session/new 发送；
+ * session/resume 不再带，以免 Worker 按需重启时重复追加。
+ */
+export const GROK_REMOTE_SESSION_RULES =
+  "当前对话平台是 Grok Remote（浏览器 PWA），不是终端里的 Grok TUI。" +
+  "用户通过网页发消息；本轮由 grok-remote 后端和按需 Worker 执行。关掉页面不会中断本轮。";
+
+/**
  * ACP JSON-RPC 客户端。不向 Grok 声明 fs / terminal 能力。
  */
 export class AcpClient extends EventEmitter {
@@ -132,7 +140,7 @@ export class AcpClient extends EventEmitter {
     const result = await this.request("session/new", {
       cwd,
       mcpServers: [],
-      _meta: { yoloMode },
+      _meta: { yoloMode, rules: GROK_REMOTE_SESSION_RULES },
     }) as { sessionId?: string };
     if (!result?.sessionId) {
       throw new Error("Grok 没有返回 session id。");
