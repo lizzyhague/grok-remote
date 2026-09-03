@@ -15,3 +15,5 @@ deploy/*.service.local
 
 config/projects.json
 config/projects.local.json
+
+docs/*.local.md
