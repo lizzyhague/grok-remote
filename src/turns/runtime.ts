@@ -6,6 +6,11 @@ import {
   GrokAttachmentError,
   validateGrokAttachments,
 } from "../attachments/grok-input.ts";
+import {
+  memoryDegradedMessage,
+  readAvailableMemory,
+  type MemoryReading,
+} from "../platform/system-resources.ts";
 import type { ResolvedProject } from "../projects/catalog.ts";
 import type { PresenceTracker } from "../server/presence.ts";
 import { PENDING_SESSION_PREFIX } from "../sessions/types.ts";
@@ -103,6 +108,7 @@ export class TurnRuntime {
   readonly #spawn: SpawnAgent;
   readonly #maxWorkers: number;
   readonly #minFreeMemoryBytes: number;
+  readonly #availableMemory: () => Promise<MemoryReading>;
   readonly #uploads: Pick<
     SharedUploadClient,
     "createLease" | "renewLease" | "releaseLease"
@@ -123,6 +129,7 @@ export class TurnRuntime {
     spawnAgent?: SpawnAgent;
     maxWorkers?: number;
     minFreeMemoryBytes?: number;
+    availableMemory?: () => Promise<MemoryReading>;
     uploads?: Pick<SharedUploadClient, "createLease" | "renewLease" | "releaseLease">;
   }) {
     this.#store = options.store;
@@ -132,6 +139,7 @@ export class TurnRuntime {
     this.#spawn = options.spawnAgent ?? spawnGrokAgent;
     this.#maxWorkers = options.maxWorkers ?? DEFAULT_MAX_WORKERS;
     this.#minFreeMemoryBytes = options.minFreeMemoryBytes ?? DEFAULT_MIN_FREE_MEMORY_BYTES;
+    this.#availableMemory = options.availableMemory ?? readAvailableMemory;
     this.#uploads = options.uploads;
     if (this.#uploads) {
       this.#attachmentLeaseTimer = setInterval(() => {
@@ -522,11 +530,16 @@ export class TurnRuntime {
     if (existing) return existing;
 
     const project = await this.#projects.resolve(meta.projectId);
+    const memory = await this.#availableMemory();
     assertWorkerCapacity({
       activeWorkers: this.#workers.size,
       maxWorkers: this.#maxWorkers,
       minFreeMemoryBytes: this.#minFreeMemoryBytes,
+      memory,
     });
+    if (memory.degradedReason) {
+      console.warn(memoryDegradedMessage(memory, this.#minFreeMemoryBytes));
+    }
 
     const agent = this.#spawn({ grokBin: this.#grokBin, cwd: project.path });
     const client = new AcpClient(agent.process);

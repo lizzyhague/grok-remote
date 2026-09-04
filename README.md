@@ -1,6 +1,6 @@
 # Grok Remote
 
-单用户、自托管 PWA。在手机或电脑上控制这台 Linux 主机上的 Grok Build CLI。
+单用户、自托管 PWA。在手机或电脑上控制 Linux 或 macOS 主机上的 Grok Build CLI。
 
 消息在浏览器里编完再发。后端接受后可以关掉页面，本轮由按需 Worker（`grok agent stdio`）继续跑。
 
@@ -23,11 +23,14 @@
 
 ## 要求
 
-- Linux 主机
+- Linux 或 macOS 主机
 - Node.js 24 或更新版本
 - 已安装并登录 `grok`
 - 一份项目白名单 `projects.json`（可与其它 Remote 共用，用 `GROK_REMOTE_PROJECTS_CONFIG` 指向）
 - 使用附件时，需要与 Grok Remote 同一 Unix 账号运行的共享 `ai-remote-upload` 服务
+
+部署说明分为通用准备、[Linux + systemd](docs/deployment.md) 和
+[macOS + launchd](docs/deployment-macos.md)。
 
 ## 环境变量
 
@@ -41,7 +44,7 @@
 | `GROK_HOME` | 可选。Grok 的数据和会话目录；默认 `~/.grok` |
 | `GROK_REMOTE_STATE_DIR` | 可选。本应用事件日志、权限模式、归档和回收站标记；默认 `~/.grok-remote` |
 | `GROK_REMOTE_MAX_WORKERS` | 可选。同时活动的 Worker 上限，默认 2；到限拒绝新 Worker |
-| `GROK_REMOTE_MIN_FREE_MEMORY_MB` | 可选。启动 Worker 前最低可用内存，默认 512 |
+| `GROK_REMOTE_MIN_FREE_MEMORY_MB` | 可选。启动 Worker 前最低可信可用内存，默认 512；Linux 读取 `MemAvailable`，macOS 读取 `vm_stat` |
 | `AI_REMOTE_UPLOAD_SOCKET` | 可选。共享上传服务 Unix socket；默认 `~/.local/share/ai-remote/upload.sock` |
 
 真实令牌和本机项目路径不要进 git。
@@ -49,7 +52,7 @@
 ## 本机试运行
 
 ```bash
-npm ci
+npm ci --include=dev
 cp config/projects.example.json config/projects.json
 # 编辑 config/projects.json，把示例项目根目录换成实际位置
 GROK_REMOTE_TOKEN="$(openssl rand -hex 32)" \

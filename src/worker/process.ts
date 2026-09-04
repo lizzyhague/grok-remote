@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { freemem } from "node:os";
+
+import { memoryLowMessage, type MemoryReading } from "../platform/system-resources.ts";
 
 export const DEFAULT_MAX_WORKERS = 2;
 export const DEFAULT_MIN_FREE_MEMORY_BYTES = 512 * 1_048_576;
@@ -50,16 +51,15 @@ export function assertWorkerCapacity(options: {
   activeWorkers: number;
   maxWorkers: number;
   minFreeMemoryBytes: number;
-  freeMemoryBytes?: number;
+  memory: MemoryReading;
 }): void {
   if (options.activeWorkers >= options.maxWorkers) {
     throw Object.assign(new Error("当前活动的 Grok 会话已达到上限，请等其中一个结束后再试。"), {
       code: "worker_limit",
     });
   }
-  const free = options.freeMemoryBytes ?? freemem();
-  if (free < options.minFreeMemoryBytes) {
-    throw Object.assign(new Error("主机可用内存不足，无法再启动 Grok Worker。"), {
+  if (!options.memory.degradedReason && options.memory.availableBytes < options.minFreeMemoryBytes) {
+    throw Object.assign(new Error(memoryLowMessage(options.memory, options.minFreeMemoryBytes)), {
       code: "memory_limit",
     });
   }

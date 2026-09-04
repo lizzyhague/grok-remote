@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -36,6 +36,24 @@ test("lists sessions that belong to the project cwd", async (context) => {
     `${JSON.stringify({ prompt_index: 2 })}\n`,
   );
   assert.equal(await disk.readRewindPointsJsonl("sess-skip"), null);
+});
+
+test("matches a session cwd reached through a filesystem alias", async (context) => {
+  const grokHome = await mkdtemp(path.join(tmpdir(), "grok-remote-session-alias-"));
+  context.after(() => rm(grokHome, { recursive: true, force: true }));
+
+  const project = path.join(grokHome, "project");
+  const alias = path.join(grokHome, "project-alias");
+  await mkdir(project, { recursive: true });
+  await symlink(project, alias, "dir");
+
+  const group = path.join(grokHome, "sessions", encodeURIComponent(alias));
+  await mkdir(path.join(group, "sess-alias"), { recursive: true });
+  await writeSummary(path.join(group, "sess-alias"), "sess-alias", alias, "Alias");
+
+  const disk = new GrokSessionDisk(grokHome);
+  const listed = await disk.listForCwd(project);
+  assert.deepEqual(listed.map((item) => item.id), ["sess-alias"]);
 });
 
 test("finds the active prompt boundary from rewind points", () => {

@@ -7,6 +7,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
+import type { MemoryReading } from "../platform/system-resources.ts";
 import { ProjectCatalog } from "../projects/catalog.ts";
 import { RemoteSessionStore } from "../sessions/store.ts";
 import { PresenceTracker } from "../server/presence.ts";
@@ -25,6 +26,7 @@ test("duplicate clientMessageId returns the same accepted turn", async (context)
     projects: catalog,
     presence,
     grokBin: "grok",
+    availableMemory: ampleMemory,
     spawnAgent: () => {
       throw new Error("不应启动 Worker");
     },
@@ -62,6 +64,7 @@ test("rejects a session that belongs to a different project before leasing attac
     projects: catalog,
     presence,
     grokBin: "grok",
+    availableMemory: ampleMemory,
     spawnAgent: () => {
       throw new Error("不应启动 Worker");
     },
@@ -111,6 +114,7 @@ test("message.user confirms the originating clientMessageId", async (context) =>
     projects: catalog,
     presence,
     grokBin: "grok",
+    availableMemory: ampleMemory,
     spawnAgent: () => fake.agent,
   });
   context.after(async () => {
@@ -160,6 +164,7 @@ test("leases attachments, sends private content to ACP, and releases without per
     projects: catalog,
     presence,
     grokBin: "grok",
+    availableMemory: ampleMemory,
     spawnAgent: () => fake.agent,
     uploads: {
       async createLease(receivedBinding, ownerId, attachmentIds) {
@@ -258,6 +263,7 @@ test("command approvals ignore login text and use the concise description", asyn
     projects: catalog,
     presence,
     grokBin: "grok",
+    availableMemory: ampleMemory,
     spawnAgent: () => fake.agent,
   });
   context.after(async () => {
@@ -394,4 +400,12 @@ function respondingAgent(
     killGroup: () => exit(),
   };
   return { agent, exited, prompts };
+}
+
+async function ampleMemory(): Promise<MemoryReading> {
+  return {
+    availableBytes: 8 * 1_024 * 1_048_576,
+    platform: "linux",
+    source: "linux-meminfo",
+  };
 }

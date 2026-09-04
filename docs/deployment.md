@@ -1,6 +1,7 @@
 # 部署说明
 
-本文给出一套可复用的 Linux + systemd 部署方式。仓库不假定主机名、Unix 用户、
+本文先给出 Linux 和 macOS 共用的准备步骤，再给出 Linux + systemd 部署方式。macOS +
+launchd 的后续步骤见 [`deployment-macos.md`](deployment-macos.md)。仓库不假定主机名、Unix 用户、
 安装目录、Node/Grok 路径、回环端口或 HTTPS 入口端口。真实令牌和主机路径不应提交。
 
 Grok Remote 始终只监听 `127.0.0.1`。Tailscale Serve、Caddy、nginx 等 HTTPS 入口是
@@ -62,7 +63,7 @@ grok --version
 ```bash
 git clone https://github.com/lizzyhague/grok-remote.git
 cd grok-remote
-npm ci
+npm ci --include=dev
 npm run typecheck
 npm test
 ```
@@ -202,7 +203,7 @@ Tailscale Serve 的访问仍受 tailnet ACL 约束。使用其它反向代理时
 
 ```bash
 git pull --ff-only
-npm ci
+npm ci --include=dev
 npm run typecheck
 npm test
 ```

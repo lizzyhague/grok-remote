@@ -49,7 +49,7 @@ export class GrokSessionDisk {
       if (!group.isDirectory() || group.name.startsWith(".")) continue;
       const groupDir = path.join(this.#root, group.name);
       const groupCwd = await readGroupCwd(groupDir, group.name);
-      if (groupCwd && !cwdMatches(groupCwd, projectPath)) {
+      if (groupCwd && !await cwdMatches(groupCwd, projectPath)) {
         continue;
       }
 
@@ -59,7 +59,7 @@ export class GrokSessionDisk {
         const sessionDir = path.join(groupDir, entry.name);
         const record = await readSessionRecord(sessionDir);
         if (!record) continue;
-        if (!cwdMatches(record.cwd, projectPath)) continue;
+        if (!await cwdMatches(record.cwd, projectPath)) continue;
         records.push(record);
       }
     }
@@ -166,8 +166,13 @@ async function readGroupCwd(groupDir: string, groupName: string): Promise<string
   }
 }
 
-function cwdMatches(sessionCwd: string, projectPath: string): boolean {
-  const normalized = path.resolve(sessionCwd);
+async function cwdMatches(sessionCwd: string, projectPath: string): Promise<boolean> {
+  let normalized: string;
+  try {
+    normalized = await realpath(sessionCwd);
+  } catch {
+    normalized = path.resolve(sessionCwd);
+  }
   return normalized === projectPath;
 }
 
