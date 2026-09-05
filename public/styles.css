@@ -977,9 +977,16 @@ button.small {
   color: var(--danger);
 }
 
-.attachment-remove {
+.attachment-actions {
   grid-column: 2;
   grid-row: 1 / span 2;
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+}
+
+.attachment-retry,
+.attachment-remove {
   min-height: 30px;
   padding: 0.2rem 0.45rem;
   border: 0;

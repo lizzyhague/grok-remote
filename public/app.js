@@ -225,12 +225,16 @@ async function connect(token) {
   state.socket = socket;
   socket.addEventListener("open", () => {
     void (async () => {
+      // 会话是绑在连接上的（服务端 #requireSession），重连换了连接就等于没打开
+      // 会话：发消息和申请上传票据都会被拒。所以这里要把断线前那个会话接回来。
+      const previousSessionId = state.currentSessionId;
       try {
         await request("auth", { token });
         showApp();
         setConnectionStatus("connected", "已连接");
         await loadProjects();
         await ensureSlashMenu();
+        if (previousSessionId) await restoreSessionAfterReconnect(previousSessionId);
       } catch (error) {
         elements.loginStatus.textContent = errorMessage(error);
         showLogin();
@@ -381,6 +385,59 @@ async function resumeSession(sessionId) {
   });
   applyOpenedSession(opened);
   closeMobileSidebar();
+}
+
+/**
+ * 重连后自动回到断线前的会话，不必再去列表里点一次。会话可能在断线期间被
+ * 归档或删掉了，那就退回列表并说明原因，而不是把错误顶在界面上不动。
+ */
+async function restoreSessionAfterReconnect(sessionId) {
+  try {
+    const opened = await request("session.resume", {
+      projectId: state.projectId,
+      sessionId,
+    });
+    // 屏幕上已经铺着这个会话，就别再重铺一遍：clearTimeline() 加整段重建会让
+    // 对话肉眼可见地翻一次。断线期间漏掉的用 events.resume 按 seq 补进来就够了，
+    // 服务端的事件是落盘按 seq 读的，不是内存里的短缓冲。
+    if (opened?.session?.id === state.currentSessionId) {
+      applyResumedSessionInPlace(opened);
+    } else {
+      applyOpenedSession(opened);
+    }
+  } catch (error) {
+    resetCurrentSession();
+    showEmpty("选择以前的会话，或者新建一个会话。");
+    showNotice(`${errorMessage(error)}断线前的会话没能接回来。`);
+    return;
+  }
+  // 断线期间挑的附件在这里接着传完。
+  await flushQueuedAttachments();
+}
+
+/**
+ * 重连接回同一个会话时用的轻量版 applyOpenedSession：不动时间线、不动附件草稿，
+ * 只把跟着连接走的那些状态接回来，再补上断线期间错过的事件。
+ */
+function applyResumedSessionInPlace(opened) {
+  const missedAfterSeq = state.lastSeq;
+  state.sessionTitle = opened.session?.title || state.sessionTitle;
+  state.alwaysApprove = opened.alwaysApprove === true;
+  state.taskRunning = Boolean(opened.activeTaskId);
+  upsertSession(opened.session);
+  updateConversationTitle();
+  elements.approvalList.replaceChildren();
+  for (const approval of opened.pendingApprovals ?? []) addApproval(approval);
+  hideNotice();
+  syncApprovalNotice();
+  void request("events.resume", { afterSeq: missedAfterSeq })
+    .then((data) => {
+      for (const event of data?.events ?? []) handleServerEvent(event);
+    })
+    .catch((error) => showNotice(errorMessage(error)));
+  updateControls();
+  renderSessionList();
+  void retryOutboxForCurrentSession();
 }
 
 async function reloadAfterRewind(sessionId, promptText) {
@@ -813,7 +870,7 @@ async function sendOrStop() {
   const text = elements.messageInput.value.trim();
   const attachments = readyAttachments();
   if ((!text && attachments.length === 0) || !state.currentSessionId ||
-    state.attachmentUploads.size > 0) return;
+    hasUnfinishedUploads()) return;
   if (attachments.length === 0 && await state.slashMenu?.submit(text)) {
     updateControls();
     return;
@@ -875,9 +932,13 @@ async function sendMessage(text, attachments) {
   updateControls();
 }
 
+/*
+ * 挑文件不看连接通不通：手机弹出系统选择器时网页会被切到后台，回来时连接往往
+ * 已经断了、还在重连。这里要是拦一下，刚选的图就被无声丢掉了——连没连上交给
+ * startUpload() 去分流，断着就先排队。
+ */
 async function uploadFiles(files) {
-  if (!state.currentSessionId || !state.projectId ||
-    state.socket?.readyState !== WebSocket.OPEN || files.length === 0) return;
+  if (!state.currentSessionId || !state.projectId || files.length === 0) return;
   const available = MAX_MESSAGE_ATTACHMENTS - state.pendingAttachments.length;
   if (available <= 0) {
     showNotice(`一条消息最多附加 ${MAX_MESSAGE_ATTACHMENTS} 个文件。`);
@@ -890,29 +951,61 @@ async function uploadFiles(files) {
 }
 
 async function uploadFile(file) {
-  const clientId = createClientMessageId();
-  const projectId = state.projectId;
-  const sessionId = state.currentSessionId;
   const draft = {
-    clientId,
+    clientId: createClientMessageId(),
     originalName: file.name || "未命名文件",
     size: file.size,
     declaredMime: file.type || "application/octet-stream",
     status: "requesting",
     statusText: "正在申请上传",
+    // 排队和重试都要拿它再传一次，所以文件本身留在草稿上。
+    file,
+    projectId: state.projectId,
+    sessionId: state.currentSessionId,
   };
   state.pendingAttachments.push(draft);
   renderAttachmentList();
   updateControls();
+  await startUpload(draft);
+}
+
+/**
+ * 一个草稿的上传全过程，可以重复进入：断线时排队，重连接回会话后由
+ * flushQueuedAttachments() 再叫一次；失败后也可以由「重试」再叫一次。
+ */
+async function startUpload(draft) {
+  if (!draft.file) return;
+  if (state.socket?.readyState !== WebSocket.OPEN) {
+    Object.assign(draft, { status: "queued", statusText: "等待重新连接" });
+    renderAttachmentList();
+    updateControls();
+    return;
+  }
+  // 排队期间会话可能已经换了。附件是绑在会话上的，不能改投到新会话去。
+  if (draft.projectId !== state.projectId || draft.sessionId !== state.currentSessionId) {
+    Object.assign(draft, {
+      status: "failed",
+      statusText: "会话已切换，请重新选择文件",
+      file: null,
+    });
+    renderAttachmentList();
+    updateControls();
+    return;
+  }
+
+  const { clientId, file } = draft;
   const controller = new AbortController();
   state.attachmentUploads.set(clientId, controller);
+  Object.assign(draft, { status: "requesting", statusText: "正在申请上传" });
+  renderAttachmentList();
+  updateControls();
   try {
     const ticket = await request("attachment.ticket.create", {
       originalName: draft.originalName,
       declaredMime: draft.declaredMime,
       expectedSize: file.size,
     });
-    if (state.projectId !== projectId || state.currentSessionId !== sessionId) {
+    if (state.projectId !== draft.projectId || state.currentSessionId !== draft.sessionId) {
       throw new Error("上传期间切换了会话，请重新选择文件。");
     }
     Object.assign(draft, { status: "uploading", statusText: "正在上传" });
@@ -934,18 +1027,37 @@ async function uploadFile(file) {
       clientId,
       status: "ready",
       statusText: "上传完成",
+      file: null,
     });
     persistCurrentAttachmentDraft();
   } catch (error) {
-    Object.assign(draft, {
-      status: "failed",
-      statusText: error?.name === "AbortError" ? "已取消" : errorMessage(error),
-    });
+    // 断线导致的失败不算失败，回到队列里等下一次接回会话。
+    if (state.socket?.readyState !== WebSocket.OPEN && error?.name !== "AbortError") {
+      Object.assign(draft, { status: "queued", statusText: "等待重新连接" });
+    } else {
+      Object.assign(draft, {
+        status: "failed",
+        statusText: error?.name === "AbortError" ? "已取消" : errorMessage(error),
+      });
+    }
   } finally {
     state.attachmentUploads.delete(clientId);
     renderAttachmentList();
     updateControls();
   }
+}
+
+/** 接回会话后，把排队的附件接着传完。 */
+async function flushQueuedAttachments() {
+  const queued = state.pendingAttachments.filter((draft) => draft.status === "queued");
+  if (queued.length === 0) return;
+  await Promise.all(queued.map((draft) => startUpload(draft)));
+}
+
+/** 还没传完的附件（排队中或正在传）。有这些就先别发送，否则它们会被落下。 */
+function hasUnfinishedUploads() {
+  return state.attachmentUploads.size > 0 ||
+    state.pendingAttachments.some((draft) => draft.status === "queued");
 }
 
 function renderAttachmentList() {
@@ -963,13 +1075,26 @@ function renderAttachmentList() {
     meta.textContent = attachment.status === "ready"
       ? `${attachment.id} · 上传完成`
       : attachment.statusText || "处理中";
+    const actions = document.createElement("div");
+    actions.className = "attachment-actions";
+    // 传失败但文件还在手上的，给一次重来的机会；不想要就用旁边的「移除」。
+    if (attachment.status === "failed" && attachment.file) {
+      const retry = document.createElement("button");
+      retry.className = "quiet attachment-retry";
+      retry.type = "button";
+      retry.textContent = "重试";
+      retry.setAttribute("aria-label", `重新上传附件 ${attachment.originalName || "未命名文件"}`);
+      retry.addEventListener("click", () => void startUpload(attachment));
+      actions.append(retry);
+    }
     const remove = document.createElement("button");
     remove.className = "quiet attachment-remove";
     remove.type = "button";
     remove.textContent = "移除";
     remove.setAttribute("aria-label", `移除附件 ${attachment.originalName || "未命名文件"}`);
     remove.addEventListener("click", () => removeAttachment(attachment));
-    item.append(name, meta, remove);
+    actions.append(remove);
+    item.append(name, meta, actions);
     elements.attachmentList.append(item);
   }
 }
@@ -1679,7 +1804,7 @@ function updateControls() {
   const hasSession = Boolean(state.currentSessionId);
   const hasText = Boolean(elements.messageInput.value.trim());
   const hasAttachments = readyAttachments().length > 0;
-  const uploading = state.attachmentUploads.size > 0;
+  const uploading = hasUnfinishedUploads();
   const confirmLocked = state.composerLocksConfirms;
   const navigationBusy = state.navigationBusy || state.sessionLoading;
   const navigationLocked = state.busy || navigationBusy || state.taskRunning || uploading;
@@ -1977,7 +2102,17 @@ function attachmentDraftKey(sessionId = state.currentSessionId) {
 function loadAttachmentDraftForCurrentSession() {
   const key = attachmentDraftKey();
   const drafts = loadAttachmentDrafts();
-  state.pendingAttachments = key
+  // localStorage 里只有传完的那些。还没传完的（断线时排队的、失败待重试的）只在
+  // 内存里，重连接回同一个会话要留着它们；换会话则连同正在传的一起丢掉。
+  const carried = state.pendingAttachments.filter((attachment) =>
+    attachment.status !== "ready" && attachment.sessionId === state.currentSessionId
+  );
+  for (const attachment of state.pendingAttachments) {
+    if (carried.includes(attachment)) continue;
+    state.attachmentUploads.get(attachment.clientId)?.abort();
+    state.attachmentUploads.delete(attachment.clientId);
+  }
+  const stored = key
     ? publicAttachments(drafts[key]).map((attachment) => ({
       ...attachment,
       clientId: createClientMessageId(),
@@ -1985,6 +2120,7 @@ function loadAttachmentDraftForCurrentSession() {
       statusText: "上传完成",
     }))
     : [];
+  state.pendingAttachments = [...stored, ...carried];
   renderAttachmentList();
 }
 
@@ -1992,10 +2128,14 @@ function persistCurrentAttachmentDraft() {
   const key = attachmentDraftKey();
   if (!key) return;
   const drafts = loadAttachmentDrafts();
+  // file / projectId / sessionId 只服务于排队和重试，不进 localStorage。
   const ready = readyAttachments().map(({
     clientId: _clientId,
     status: _status,
     statusText: _statusText,
+    file: _file,
+    projectId: _projectId,
+    sessionId: _sessionId,
     ...attachment
   }) => attachment);
   if (ready.length > 0) drafts[key] = ready;
@@ -2053,6 +2193,12 @@ function migrateLocalSessionState(previousSessionId, nextSessionId) {
     ));
     delete drafts[previousKey];
     stateSet(ATTACHMENT_DRAFTS_KEY, JSON.stringify(drafts));
+  }
+
+  // 存起来的那些跟着换了 key，内存里还没传完的（排队、待重试）也得跟着换绑，
+  // 否则它们会被当成「另一个会话的附件」丢掉或判成会话已切换。
+  for (const attachment of state.pendingAttachments) {
+    if (attachment.sessionId === previousSessionId) attachment.sessionId = nextSessionId;
   }
 }
 
