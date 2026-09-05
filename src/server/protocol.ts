@@ -46,6 +46,13 @@ export type BrowserRequest =
     projectId: string;
     sessionId: string;
   }
+  | {
+    type: "session.mark";
+    requestId: string;
+    projectId: string;
+    sessionId: string;
+    marked: boolean;
+  }
   | { type: "history.older"; requestId: string }
   | { type: "events.resume"; requestId: string; afterSeq: number }
   | { type: "commands.list"; requestId: string }
@@ -182,6 +189,14 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         requestId,
         projectId: requireString(value.projectId, "项目 ID", requestId, 1_024),
         sessionId: requireString(value.sessionId, "会话 ID", requestId, 1_024),
+      };
+    case "session.mark":
+      return {
+        type: "session.mark",
+        requestId,
+        projectId: requireString(value.projectId, "项目 ID", requestId, 1_024),
+        sessionId: requireString(value.sessionId, "会话 ID", requestId, 1_024),
+        marked: requireBoolean(value.marked, "钉住", requestId),
       };
     case "history.older":
       return { type: "history.older", requestId };
@@ -351,6 +366,13 @@ function requireMessageText(
     );
   }
   return text;
+}
+
+function requireBoolean(value: unknown, label: string, requestId: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new ProtocolError("invalid_field", `${label}必须是布尔值。`, requestId);
+  }
+  return value;
 }
 
 function requireNonNegativeInt(value: unknown, label: string, requestId: string): number {

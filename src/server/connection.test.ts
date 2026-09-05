@@ -272,6 +272,8 @@ function makeServices(turns: TurnApi): BrowserConnectionServices {
       updatedAt: 1,
       state: "idle" as const,
       pending: true,
+      projectId: "projects/demo",
+      marked: false,
       deletedAt: null,
       purgeAt: null,
     },
@@ -290,7 +292,7 @@ function makeServices(turns: TurnApi): BrowserConnectionServices {
     },
     sessions: {
       async list() {
-        return { sessions: [], nextCursor: null };
+        return { sessions: [], marked: [], nextCursor: null };
       },
       async start() {
         return opened;
@@ -312,6 +314,9 @@ function makeServices(turns: TurnApi): BrowserConnectionServices {
       },
       async deleteTrash(_projectId, sessionIds) {
         return { succeeded: sessionIds, failed: [] };
+      },
+      async setMarked(projectId, sessionId, marked) {
+        return { ...opened.session, id: sessionId, projectId, marked, pending: false };
       },
     },
     turns,

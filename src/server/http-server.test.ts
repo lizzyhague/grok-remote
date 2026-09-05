@@ -197,7 +197,7 @@ function emptyServices(): { services: BrowserConnectionServices; turns: TurnRunt
     },
     sessions: {
       async list(): Promise<SessionPage> {
-        return { sessions: [], nextCursor: null };
+        return { sessions: [], marked: [], nextCursor: null };
       },
       async start(): Promise<OpenedSession> {
         throw new Error("未使用");
@@ -219,6 +219,21 @@ function emptyServices(): { services: BrowserConnectionServices; turns: TurnRunt
       },
       async deleteTrash(_projectId: string, sessionIds: string[]) {
         return { succeeded: sessionIds, failed: [] };
+      },
+      async setMarked(projectId: string, sessionId: string, marked: boolean) {
+        return {
+          id: sessionId,
+          title: "新会话",
+          preview: "",
+          createdAt: 1,
+          updatedAt: 1,
+          state: "idle" as const,
+          pending: false,
+          projectId,
+          marked,
+          deletedAt: null,
+          purgeAt: null,
+        };
       },
     },
     turns,

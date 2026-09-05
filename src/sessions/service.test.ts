@@ -177,6 +177,49 @@ test("refuses to mutate a pending session", async (context) => {
   assert.match(result.failed[0]?.message ?? "", /还没有保存/u);
 });
 
+test("pins marked sessions across projects and omits them from the directory page", async (context) => {
+  const { catalog, disk, store, layout, projectId, grokHome, projectPath } = await createFixture(context);
+  const betaPath = path.join(path.dirname(projectPath), "beta");
+  await mkdir(betaPath, { recursive: true });
+  const betaGroup = path.join(grokHome, "sessions", encodeURIComponent(betaPath));
+  await writeSummary(path.join(betaGroup, "session-beta"), "session-beta", betaPath, "Other project");
+  const service = new SessionService(catalog, disk, store, layout);
+
+  const pinned = await service.setMarked("workspace/beta", "session-beta", true);
+  assert.equal(pinned.marked, true);
+  assert.equal(pinned.projectId, "workspace/beta");
+  assert.equal(layout.isMarked("session-beta"), true);
+
+  const page = await service.list(projectId);
+  assert.deepEqual(page.sessions.map((session) => session.id), ["session-keep"]);
+  assert.deepEqual(page.marked.map((session) => session.id), ["session-beta"]);
+  assert.equal(page.marked[0]?.projectId, "workspace/beta");
+
+  const unmarked = await service.setMarked("workspace/beta", "session-beta", false);
+  assert.equal(unmarked.marked, false);
+  assert.equal(layout.isMarked("session-beta"), false);
+});
+
+test("keeps archived marked sessions out of the recent-session pin group", async (context) => {
+  const { catalog, disk, store, layout, projectId } = await createFixture(context);
+  const service = new SessionService(catalog, disk, store, layout);
+  await service.setMarked(projectId, "session-keep", true);
+  await service.archive(projectId, ["session-keep"]);
+  const page = await service.list(projectId);
+  assert.deepEqual(page.sessions, []);
+  assert.deepEqual(page.marked, []);
+});
+
+test("refuses to pin a pending session", async (context) => {
+  const { catalog, disk, store, layout, projectId } = await createFixture(context);
+  const service = new SessionService(catalog, disk, store, layout);
+  const opened = await service.start(projectId);
+  await assert.rejects(
+    () => service.setMarked(projectId, opened.session.id, true),
+    /还没有保存/u,
+  );
+});
+
 test("opens only the active Grok history branch after rewind", async (context) => {
   const { catalog, disk, store, layout, projectId, group } = await createFixture(context);
   const sessionDir = path.join(group, "session-keep");

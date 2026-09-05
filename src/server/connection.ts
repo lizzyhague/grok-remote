@@ -54,6 +54,7 @@ export interface SessionsApi {
   ): Promise<SessionMutationResult>;
   restoreTrash(projectId: string, sessionIds: string[]): Promise<SessionMutationResult>;
   deleteTrash(projectId: string, sessionIds: string[]): Promise<SessionMutationResult>;
+  setMarked(projectId: string, sessionId: string, marked: boolean): Promise<SessionPage["sessions"][number]>;
   onChange?(listener: (event: SessionChangeEvent) => void): () => void;
 }
 
@@ -249,6 +250,14 @@ export class BrowserConnection {
           request.projectId,
           await this.#services.sessions.open(request.projectId, request.sessionId),
         );
+      case "session.mark":
+        return {
+          session: await this.#services.sessions.setMarked(
+            request.projectId,
+            request.sessionId,
+            request.marked,
+          ),
+        };
       case "history.older":
         return this.#loadOlder();
       case "events.resume":

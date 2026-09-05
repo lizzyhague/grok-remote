@@ -10,12 +10,16 @@ export type SessionSummary = {
   updatedAt: number;
   state: SessionState;
   pending: boolean;
+  projectId: string;
+  marked: boolean;
   deletedAt: number | null;
   purgeAt: number | null;
 };
 
 export type SessionPage = {
   sessions: SessionSummary[];
+  /** 「最近会话」里跨项目置顶；不算进分页。归档 / 回收站为空数组。 */
+  marked: SessionSummary[];
   nextCursor: string | null;
 };
 

@@ -393,7 +393,17 @@ button.small {
   color: #fdba74;
 }
 
-.session-menu-trigger {
+.session-mark-group .session-item:last-child {
+  border-bottom: 0;
+}
+
+.session-mark-divider {
+  margin: 0.4rem 0.85rem;
+  border: 0;
+  border-top: 2px solid var(--accent);
+}
+
+.session-mark-trigger {
   align-self: center;
   width: 38px;
   min-height: 38px;
@@ -402,6 +412,44 @@ button.small {
   display: grid;
   place-items: center;
   color: var(--muted);
+}
+
+.session-mark-trigger .session-mark-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.session-mark-trigger[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.app-alert-dialog {
+  width: min(440px, calc(100vw - 2rem));
+  padding: 1.25rem;
+  color: #eeeaf2;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.app-alert-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.app-alert-dialog h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1.05rem;
+}
+
+.app-alert-dialog p {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.app-alert-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .session-select-label {

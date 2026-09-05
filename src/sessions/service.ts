@@ -51,7 +51,7 @@ export type OpenedSession = {
 export type SessionChangeEvent = {
   projectId: string;
   sessionIds: string[];
-  change: "delete" | "create" | "update" | "archive" | "unarchive" | "trash" | "restore";
+  change: "delete" | "create" | "update" | "archive" | "unarchive" | "trash" | "restore" | "mark" | "unmark";
 };
 
 export class SessionService {
@@ -100,12 +100,16 @@ export class SessionService {
     }
 
     const fromDisk = await this.#disk.listForCwd(project.path);
+    const markedIds = new Set(
+      view === "active" ? this.#layout.listMarked().map((entry) => entry.sessionId) : [],
+    );
     const sessions: SessionSummary[] = [];
     for (const record of fromDisk) {
       if (this.#layout.isTrashed(record.id)) continue;
       const archived = this.#layout.isArchived(record.id);
       if (view === "archived" ? !archived : archived) continue;
-      sessions.push(this.#toSummary(record));
+      if (view === "active" && markedIds.has(record.id)) continue;
+      sessions.push(this.#toSummary(record, projectId, false));
     }
 
     const filtered = search
@@ -119,6 +123,7 @@ export class SessionService {
     const nextOffset = offset + page.length;
     return {
       sessions: page,
+      marked: view === "active" ? await this.#listMarked(search) : [],
       nextCursor: nextOffset < filtered.length ? String(nextOffset) : null,
     };
   }
@@ -136,6 +141,23 @@ export class SessionService {
       lastSeq: 0,
       resumeAfterSeq: 0,
     };
+  }
+
+  setMarked(projectId: string, sessionId: string, marked: boolean): Promise<SessionSummary> {
+    return this.#serializeMutation(async () => {
+      if (sessionId.startsWith(PENDING_SESSION_PREFIX)) {
+        throw new Error("这个会话还没有保存，不能钉住。");
+      }
+      if (!marked) {
+        await this.#layout.unmark(sessionId);
+        this.#emit({ projectId, sessionIds: [sessionId], change: "unmark" });
+        return this.#markedSummary(projectId, sessionId, false);
+      }
+      await this.#assertCanManage(projectId, sessionId);
+      await this.#layout.mark(sessionId, projectId);
+      this.#emit({ projectId, sessionIds: [sessionId], change: "mark" });
+      return this.#markedSummary(projectId, sessionId, true);
+    });
   }
 
   async open(projectId: string, sessionId: string): Promise<OpenedSession> {
@@ -189,7 +211,7 @@ export class SessionService {
     }
 
     return {
-      session: this.#toSummary(record),
+      session: this.#toSummary(record, projectId, this.#layout.isMarked(sessionId)),
       tasks: turns.slice(visibleStart),
       older: turns.slice(0, visibleStart),
       activeTurnId: null,
@@ -309,7 +331,7 @@ export class SessionService {
         continue;
       }
       const summary: SessionSummary = {
-        ...this.#toSummary(record),
+        ...this.#toSummary(record, projectId, this.#layout.isMarked(entry.sessionId)),
         state: "idle",
         deletedAt: entry.deletedAt,
         purgeAt: entry.deletedAt + TRASH_RETENTION_SECONDS,
@@ -327,7 +349,54 @@ export class SessionService {
     const nextOffset = offset + page.length;
     return {
       sessions: page,
+      marked: [],
       nextCursor: nextOffset < matched.length ? String(nextOffset) : null,
+    };
+  }
+
+  async #listMarked(search: string): Promise<SessionSummary[]> {
+    const summaries: SessionSummary[] = [];
+    for (const entry of this.#layout.listMarked()) {
+      if (this.#layout.isTrashed(entry.sessionId) || this.#layout.isArchived(entry.sessionId)) {
+        continue;
+      }
+      const record = await this.#disk.read(entry.sessionId);
+      if (!record) continue;
+      const summary = this.#toSummary(record, entry.projectId, true);
+      if (
+        search &&
+        !summary.title.toLowerCase().includes(search) &&
+        !summary.preview.toLowerCase().includes(search)
+      ) {
+        continue;
+      }
+      summaries.push(summary);
+    }
+    summaries.sort((left, right) =>
+      right.updatedAt - left.updatedAt || left.id.localeCompare(right.id)
+    );
+    return summaries;
+  }
+
+  async #markedSummary(
+    projectId: string,
+    sessionId: string,
+    marked: boolean,
+  ): Promise<SessionSummary> {
+    const record = await this.#disk.read(sessionId);
+    if (record) return this.#toSummary(record, projectId, marked);
+    return {
+      id: sessionId,
+      title: "新会话",
+      preview: "",
+      createdAt: 0,
+      updatedAt: 0,
+      state: "idle",
+      pending: false,
+      projectId,
+      marked,
+      deletedAt: null,
+      purgeAt: null,
     };
   }
 
@@ -368,13 +437,17 @@ export class SessionService {
     await this.#store.delete(sessionId);
   }
 
-  #toSummary(record: {
-    id: string;
-    title: string;
-    preview: string;
-    createdAt: number;
-    updatedAt: number;
-  }): SessionSummary {
+  #toSummary(
+    record: {
+      id: string;
+      title: string;
+      preview: string;
+      createdAt: number;
+      updatedAt: number;
+    },
+    projectId: string,
+    marked: boolean,
+  ): SessionSummary {
     return {
       id: record.id,
       title: record.title,
@@ -383,6 +456,8 @@ export class SessionService {
       updatedAt: record.updatedAt,
       state: this.#isRunning(record.id) ? "active" : "idle",
       pending: false,
+      projectId,
+      marked,
       deletedAt: null,
       purgeAt: null,
     };
@@ -436,6 +511,7 @@ function pendingSummary(meta: {
   id: string;
   title: string;
   createdAt: number;
+  projectId: string;
 }): SessionSummary {
   return {
     id: meta.id,
@@ -445,6 +521,8 @@ function pendingSummary(meta: {
     updatedAt: meta.createdAt,
     state: "idle",
     pending: true,
+    projectId: meta.projectId,
+    marked: false,
     deletedAt: null,
     purgeAt: null,
   };

@@ -71,6 +71,34 @@ test("rejects malformed state instead of silently discarding it", async (context
   );
 });
 
+test("persists pins and reloads files that omit the marked field", async (context) => {
+  const filePath = await fixture(context);
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, JSON.stringify({
+    version: 1,
+    archived: [],
+    trash: [],
+  }));
+  const store = await SessionLayoutStore.open(filePath);
+  assert.deepEqual(store.listMarked(), []);
+  await store.mark("session-1", "projects/demo");
+  assert.equal(store.isMarked("session-1"), true);
+  const reloaded = await SessionLayoutStore.open(filePath);
+  assert.deepEqual(reloaded.listMarked(), [{
+    sessionId: "session-1",
+    projectId: "projects/demo",
+  }]);
+  await reloaded.unmark("session-1");
+  assert.equal((await SessionLayoutStore.open(filePath)).isMarked("session-1"), false);
+});
+
+test("refuses to pin a session that is already in trash", async (context) => {
+  const filePath = await fixture(context);
+  const store = await SessionLayoutStore.open(filePath);
+  await store.moveToTrash(trashEntry());
+  await assert.rejects(() => store.mark("session-1", "projects/demo"), /回收站/u);
+});
+
 test("keeps layout.json under the grok-remote state directory", () => {
   assert.equal(resolveLayoutStatePath({
     GROK_REMOTE_STATE_DIR: "/var/lib/grok-remote",

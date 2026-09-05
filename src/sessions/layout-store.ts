@@ -18,10 +18,16 @@ export type TrashEntry = {
   origin: LayoutOrigin;
 };
 
+export type MarkedEntry = {
+  sessionId: string;
+  projectId: string;
+};
+
 type LayoutFile = {
   version: 1;
   archived: ArchivedEntry[];
   trash: TrashEntry[];
+  marked?: MarkedEntry[];
 };
 
 export function resolveLayoutStatePath(
@@ -31,12 +37,13 @@ export function resolveLayoutStatePath(
 }
 
 /**
- * 归档和回收站都是本应用本地标记。Grok 磁盘上的会话先不动。
+ * 归档、回收站和钉住都是本应用本地标记。Grok 磁盘上的会话先不动。
  */
 export class SessionLayoutStore {
   readonly #filePath: string;
   readonly #archived = new Map<string, ArchivedEntry>();
   readonly #trash = new Map<string, TrashEntry>();
+  readonly #marked = new Map<string, MarkedEntry>();
   #writeQueue: Promise<void> = Promise.resolve();
 
   private constructor(filePath: string) {
@@ -77,6 +84,47 @@ export class SessionLayoutStore {
     return [...this.#trash.values()]
       .filter((entry) => projectId === undefined || entry.projectId === projectId)
       .map((entry) => ({ ...entry }));
+  }
+
+  isMarked(sessionId: string): boolean {
+    return this.#marked.has(sessionId);
+  }
+
+  markedEntry(sessionId: string): MarkedEntry | null {
+    const entry = this.#marked.get(sessionId);
+    return entry ? { ...entry } : null;
+  }
+
+  listMarked(): MarkedEntry[] {
+    return [...this.#marked.values()].map((entry) => ({ ...entry }));
+  }
+
+  async mark(sessionId: string, projectId: string): Promise<void> {
+    if (this.#trash.has(sessionId)) {
+      throw new Error("回收站里的会话不能钉住，请先恢复。");
+    }
+    const previous = this.#marked.get(sessionId);
+    this.#marked.set(sessionId, { sessionId, projectId });
+    try {
+      await this.#persist();
+    } catch (error) {
+      if (previous) this.#marked.set(sessionId, previous);
+      else this.#marked.delete(sessionId);
+      throw error;
+    }
+  }
+
+  async unmark(sessionId: string): Promise<boolean> {
+    const previous = this.#marked.get(sessionId);
+    if (!previous) return false;
+    this.#marked.delete(sessionId);
+    try {
+      await this.#persist();
+      return true;
+    } catch (error) {
+      this.#marked.set(sessionId, previous);
+      throw error;
+    }
   }
 
   async archive(sessionId: string, projectId: string): Promise<void> {
@@ -182,6 +230,9 @@ export class SessionLayoutStore {
     for (const entry of value.trash) {
       this.#trash.set(entry.sessionId, { ...entry });
     }
+    for (const entry of value.marked ?? []) {
+      this.#marked.set(entry.sessionId, { ...entry });
+    }
   }
 
   #persist(): Promise<void> {
@@ -189,6 +240,7 @@ export class SessionLayoutStore {
       version: 1,
       archived: [...this.#archived.values()].map((entry) => ({ ...entry })),
       trash: [...this.#trash.values()].map((entry) => ({ ...entry })),
+      marked: [...this.#marked.values()].map((entry) => ({ ...entry })),
     };
     const operation = this.#writeQueue.then(() => this.#writeSnapshot(snapshot));
     this.#writeQueue = operation.catch(() => {});
@@ -213,14 +265,22 @@ export class SessionLayoutStore {
 }
 
 function isLayoutFile(value: unknown): value is LayoutFile {
-  return isObject(value) &&
-    value.version === 1 &&
-    Array.isArray(value.archived) &&
-    Array.isArray(value.trash) &&
-    value.archived.every(isArchivedEntry) &&
-    value.trash.every(isTrashEntry) &&
-    new Set(value.archived.map((entry) => entry.sessionId)).size === value.archived.length &&
-    new Set(value.trash.map((entry) => entry.sessionId)).size === value.trash.length;
+  if (
+    !isObject(value) ||
+    value.version !== 1 ||
+    !Array.isArray(value.archived) ||
+    !Array.isArray(value.trash) ||
+    !value.archived.every(isArchivedEntry) ||
+    !value.trash.every(isTrashEntry) ||
+    new Set(value.archived.map((entry) => entry.sessionId)).size !== value.archived.length ||
+    new Set(value.trash.map((entry) => entry.sessionId)).size !== value.trash.length
+  ) {
+    return false;
+  }
+  if (value.marked === undefined) return true;
+  return Array.isArray(value.marked) &&
+    value.marked.every(isArchivedEntry) &&
+    new Set(value.marked.map((entry) => entry.sessionId)).size === value.marked.length;
 }
 
 function isArchivedEntry(value: unknown): value is ArchivedEntry {
