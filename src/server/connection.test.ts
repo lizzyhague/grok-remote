@@ -273,6 +273,7 @@ function makeServices(turns: TurnApi): BrowserConnectionServices {
       state: "idle" as const,
       pending: true,
       projectId: "projects/demo",
+      projectName: "demo",
       marked: false,
       deletedAt: null,
       purgeAt: null,

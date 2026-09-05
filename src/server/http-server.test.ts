@@ -230,6 +230,7 @@ function emptyServices(): { services: BrowserConnectionServices; turns: TurnRunt
           state: "idle" as const,
           pending: false,
           projectId,
+          projectName: "demo",
           marked,
           deletedAt: null,
           purgeAt: null,

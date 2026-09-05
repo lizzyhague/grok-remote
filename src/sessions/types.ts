@@ -11,6 +11,7 @@ export type SessionSummary = {
   state: SessionState;
   pending: boolean;
   projectId: string;
+  projectName: string;
   marked: boolean;
   deletedAt: number | null;
   purgeAt: number | null;

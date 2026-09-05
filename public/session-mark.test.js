@@ -26,6 +26,15 @@ test("recent sessions pin marked items above an untitled accent divider", () => 
   assert.match(styles, /\.session-mark-divider\s*\{[^}]*border-top:\s*2px solid var\(--accent\)/su);
 });
 
+test("the line under the session title is the directory name", () => {
+  const append = app.slice(
+    app.indexOf("function appendSessionText("),
+    app.indexOf("function createSessionMark("),
+  );
+  assert.match(append, /session\.projectName/u);
+  assert.doesNotMatch(append, /暂无内容/u);
+});
+
 test("opening a marked session with a missing directory alerts and does not resume", () => {
   const resume = app.slice(
     app.indexOf("async function resumeSession("),

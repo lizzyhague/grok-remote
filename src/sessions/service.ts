@@ -1,4 +1,5 @@
 import { realpath } from "node:fs/promises";
+import path from "node:path";
 
 import type { ProjectCatalog } from "../projects/catalog.ts";
 import { GrokSessionDisk } from "./disk.ts";
@@ -129,11 +130,11 @@ export class SessionService {
   }
 
   async start(projectId: string): Promise<OpenedSession> {
-    await this.#projects.resolve(projectId);
+    const project = await this.#projects.resolve(projectId);
     const meta = await this.#store.createPending(projectId);
     this.#emit({ projectId, sessionIds: [meta.id], change: "create" });
     return {
-      session: pendingSummary(meta),
+      session: pendingSummary(meta, project.name),
       tasks: [],
       older: [],
       activeTurnId: null,
@@ -169,7 +170,7 @@ export class SessionService {
         throw new Error("会话不存在，或不属于这个项目。");
       }
       return {
-        session: pendingSummary(meta),
+        session: pendingSummary(meta, project.name),
         tasks: [],
         older: [],
         activeTurnId: null,
@@ -394,6 +395,7 @@ export class SessionService {
       state: "idle",
       pending: false,
       projectId,
+      projectName: "",
       marked,
       deletedAt: null,
       purgeAt: null,
@@ -444,6 +446,7 @@ export class SessionService {
       preview: string;
       createdAt: number;
       updatedAt: number;
+      cwd: string;
     },
     projectId: string,
     marked: boolean,
@@ -457,6 +460,7 @@ export class SessionService {
       state: this.#isRunning(record.id) ? "active" : "idle",
       pending: false,
       projectId,
+      projectName: path.basename(record.cwd),
       marked,
       deletedAt: null,
       purgeAt: null,
@@ -512,7 +516,7 @@ function pendingSummary(meta: {
   title: string;
   createdAt: number;
   projectId: string;
-}): SessionSummary {
+}, projectName: string): SessionSummary {
   return {
     id: meta.id,
     title: meta.title,
@@ -522,6 +526,7 @@ function pendingSummary(meta: {
     state: "idle",
     pending: true,
     projectId: meta.projectId,
+    projectName,
     marked: false,
     deletedAt: null,
     purgeAt: null,

@@ -629,7 +629,9 @@ function appendSessionText(container, session) {
   title.textContent = session.title || "新会话";
   const preview = document.createElement("span");
   preview.className = "session-item-preview";
-  preview.textContent = session.preview || "暂无内容";
+  preview.textContent = session.projectName ||
+    state.projects.find((project) => project.id === session.projectId)?.name ||
+    "";
   const meta = document.createElement("span");
   meta.className = "session-item-meta";
   if (state.sessionView === "trash") {
@@ -900,6 +902,7 @@ function keepOpenPendingSession() {
     state: "idle",
     pending: true,
     projectId: state.projectId,
+    projectName: state.projects.find((project) => project.id === state.projectId)?.name || "",
     marked: false,
   });
 }

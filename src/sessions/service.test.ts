@@ -60,6 +60,7 @@ test("lists disk sessions and keeps pending sessions off the list", async (conte
   const page = await service.list(projectId);
   assert.deepEqual(page.sessions.map((session) => session.id), ["session-keep"]);
   assert.equal(page.sessions[0]?.pending, false);
+  assert.equal(page.sessions[0]?.projectName, "alpha");
 });
 
 test("archives a session, hides it from active, and restores it", async (context) => {
