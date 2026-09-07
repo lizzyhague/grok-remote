@@ -6,7 +6,7 @@
 
 > 不是官方产品，也不是多人账户。部署者是唯一受信任的使用者。
 
-对照范围见 [`docs/design.md`](docs/design.md)。本应用与 Codex Remote 独立部署并使用不同入口，UI 布局、视觉和通用交互保持同步；Grok 能力差异单独适配。通用部署边界见 [`docs/deployment.md`](docs/deployment.md)。
+本应用与 Codex Remote 独立部署并使用不同入口，UI 布局、视觉和通用交互保持同步；Grok 能力差异单独适配。通用部署边界见 [`docs/deployment.md`](docs/deployment.md)。
 
 ## 数据路径
 
