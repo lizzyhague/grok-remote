@@ -161,6 +161,30 @@ export class SessionService {
     });
   }
 
+  /**
+   * 侧栏改名不经过 open()，而 TurnRuntime.renameSession 要求 meta 已存在。
+   * 没在网页里打开过的磁盘会话要在这里补一份，字段与 open() 相同。
+   */
+  async ensureMeta(projectId: string, sessionId: string): Promise<void> {
+    if (sessionId.startsWith(PENDING_SESSION_PREFIX)) {
+      throw new Error("这个会话还没有保存，不能重命名。");
+    }
+    const project = await this.#projects.resolve(projectId);
+    const record = await this.#disk.read(sessionId);
+    if (!record) {
+      throw new Error("找不到这个会话。");
+    }
+    await assertCwdBelongs(record.cwd, project.path);
+    const existing = await this.#store.readMeta(sessionId);
+    if (existing) {
+      if (existing.projectId !== projectId) {
+        throw new Error("这个会话不属于当前项目。");
+      }
+      return;
+    }
+    await this.#writeMissingMeta(projectId, sessionId, record);
+  }
+
   async open(projectId: string, sessionId: string): Promise<OpenedSession> {
     const project = await this.#projects.resolve(projectId);
     const meta = await this.#store.readMeta(sessionId);
@@ -198,18 +222,7 @@ export class SessionService {
       activePromptIndex: parseActivePromptIndex(rewindPoints),
     });
     const visibleStart = Math.max(0, turns.length - HISTORY_PAGE_SIZE);
-    if (!meta) {
-      await this.#store.writeMeta({
-        id: sessionId,
-        projectId,
-        grokSessionId: sessionId,
-        permissionMode: "ask",
-        title: record.title,
-        createdAt: record.createdAt,
-        clientMessageIds: {},
-        clientMessagePayloads: {},
-      });
-    }
+    await this.#writeMissingMeta(projectId, sessionId, record);
 
     return {
       session: this.#toSummary(record, projectId, this.#layout.isMarked(sessionId)),
@@ -417,6 +430,24 @@ export class SessionService {
       }
     }
     return seq;
+  }
+
+  async #writeMissingMeta(
+    projectId: string,
+    sessionId: string,
+    record: { title: string; createdAt: number },
+  ): Promise<void> {
+    if (await this.#store.readMeta(sessionId)) return;
+    await this.#store.writeMeta({
+      id: sessionId,
+      projectId,
+      grokSessionId: sessionId,
+      permissionMode: "ask",
+      title: record.title,
+      createdAt: record.createdAt,
+      clientMessageIds: {},
+      clientMessagePayloads: {},
+    });
   }
 
   async #assertCanManage(projectId: string, sessionId: string): Promise<void> {

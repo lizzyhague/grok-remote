@@ -211,6 +211,47 @@ test("keeps archived marked sessions out of the recent-session pin group", async
   assert.deepEqual(page.marked, []);
 });
 
+test("creates session meta for a disk session that was never opened", async (context) => {
+  const { catalog, disk, store, layout, projectId } = await createFixture(context);
+  const service = new SessionService(catalog, disk, store, layout);
+  assert.equal(await store.readMeta("session-keep"), null);
+
+  await service.ensureMeta(projectId, "session-keep");
+  const meta = await store.readMeta("session-keep");
+  assert.equal(meta?.id, "session-keep");
+  assert.equal(meta?.projectId, projectId);
+  assert.equal(meta?.grokSessionId, "session-keep");
+  assert.equal(meta?.title, "Keep me");
+  assert.equal(meta?.permissionMode, "ask");
+
+  await store.writeMeta({ ...meta!, title: "cached" });
+  await service.ensureMeta(projectId, "session-keep");
+  assert.equal((await store.readMeta("session-keep"))?.title, "cached");
+});
+
+test("refuses to prepare rename meta for pending or foreign sessions", async (context) => {
+  const { catalog, disk, store, layout, projectId, grokHome, projectPath } = await createFixture(context);
+  const service = new SessionService(catalog, disk, store, layout);
+  const opened = await service.start(projectId);
+  await assert.rejects(
+    () => service.ensureMeta(projectId, opened.session.id),
+    /还没有保存/u,
+  );
+  await assert.rejects(
+    () => service.ensureMeta(projectId, "missing-session"),
+    /找不到这个会话/u,
+  );
+
+  const betaPath = path.join(path.dirname(projectPath), "beta");
+  await mkdir(betaPath, { recursive: true });
+  const betaGroup = path.join(grokHome, "sessions", encodeURIComponent(betaPath));
+  await writeSummary(path.join(betaGroup, "session-beta"), "session-beta", betaPath, "Other project");
+  await assert.rejects(
+    () => service.ensureMeta(projectId, "session-beta"),
+    /不属于当前项目/u,
+  );
+});
+
 test("refuses to pin a pending session", async (context) => {
   const { catalog, disk, store, layout, projectId } = await createFixture(context);
   const service = new SessionService(catalog, disk, store, layout);

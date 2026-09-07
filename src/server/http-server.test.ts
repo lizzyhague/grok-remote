@@ -345,6 +345,9 @@ function emptyServices(): { services: BrowserConnectionServices; turns: TurnRunt
           purgeAt: null,
         };
       },
+      async ensureMeta() {
+        throw new Error("未使用");
+      },
     },
     turns,
     commands: new CommandRunner(turns, disk, store),

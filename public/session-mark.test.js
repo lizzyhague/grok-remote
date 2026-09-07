@@ -35,6 +35,19 @@ test("the line under the session title is the directory name", () => {
   assert.doesNotMatch(append, /暂无内容/u);
 });
 
+test("pinning an unmarked session opens the rename dialog", () => {
+  const create = app.slice(
+    app.indexOf("function createSessionMark("),
+    app.indexOf("function sessionMarkIcon("),
+  );
+  assert.match(create, /void toggleSessionMark\(session\)/u);
+  assert.match(create, /if \(!session\.marked && session\.pending !== true\) openRenameDialog\(session\)/u);
+  assert.match(app, /function openRenameDialog\(session\)/u);
+  assert.match(app, /request\("session\.rename"/u);
+  assert.match(html, /id="rename-session-dialog"/u);
+  assert.match(html, /maxlength="160"/u);
+});
+
 test("opening a marked session with a missing directory alerts and does not resume", () => {
   const resume = app.slice(
     app.indexOf("async function resumeSession("),

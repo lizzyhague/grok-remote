@@ -53,6 +53,7 @@ export interface SessionsApi {
   restoreTrash(projectId: string, sessionIds: string[]): Promise<SessionMutationResult>;
   deleteTrash(projectId: string, sessionIds: string[]): Promise<SessionMutationResult>;
   setMarked(projectId: string, sessionId: string, marked: boolean): Promise<SessionPage["sessions"][number]>;
+  ensureMeta(projectId: string, sessionId: string): Promise<void>;
   onChange?(listener: (event: SessionChangeEvent) => void): () => void;
 }
 
@@ -75,6 +76,7 @@ export type TurnApi = {
   eventsSince(sessionId: string, afterSeq: number): Promise<BrowserTurnEvent[]>;
   pendingApprovals(sessionId: string): ApprovalView[];
   activeTurnId(sessionId: string): string | null;
+  renameSession(sessionId: string, title: string): Promise<{ sessionId: string; title: string }>;
 };
 
 export type BrowserConnectionServices = {
@@ -216,6 +218,9 @@ export class BrowserConnection {
             request.marked,
           ),
         };
+      case "session.rename":
+        await this.#services.sessions.ensureMeta(request.projectId, request.sessionId);
+        return this.#services.turns.renameSession(request.sessionId, request.title);
       case "history.older":
         return this.#loadOlder();
       case "events.resume":

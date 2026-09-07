@@ -34,6 +34,20 @@ test("parses the grok-remote browser protocol", () => {
   });
 
   assert.deepEqual(parseBrowserRequest(JSON.stringify({
+    type: "session.rename",
+    requestId: "rename-1",
+    projectId: "projects/demo",
+    sessionId: "session-1",
+    title: "  新名字  ",
+  })), {
+    type: "session.rename",
+    requestId: "rename-1",
+    projectId: "projects/demo",
+    sessionId: "session-1",
+    title: "新名字",
+  });
+
+  assert.deepEqual(parseBrowserRequest(JSON.stringify({
     type: "sessions.mutate",
     requestId: "sessions-2",
     projectId: "projects/demo",
@@ -146,5 +160,46 @@ test("rejects missing clientMessageId and Codex-only commands", () => {
     })),
     (error: unknown) =>
       error instanceof ProtocolError && error.code === "unknown_command",
+  );
+});
+
+test("rejects empty, multiline, and oversized session titles", () => {
+  assert.throws(
+    () => parseBrowserRequest(JSON.stringify({
+      type: "session.rename",
+      requestId: "r1",
+      projectId: "projects/demo",
+      sessionId: "session-1",
+      title: "   ",
+    })),
+    (error: unknown) =>
+      error instanceof ProtocolError && error.code === "invalid_field" &&
+      error.message === "会话名称不能为空。",
+  );
+
+  assert.throws(
+    () => parseBrowserRequest(JSON.stringify({
+      type: "session.rename",
+      requestId: "r2",
+      projectId: "projects/demo",
+      sessionId: "session-1",
+      title: "一行\n两行",
+    })),
+    (error: unknown) =>
+      error instanceof ProtocolError && error.code === "invalid_field" &&
+      error.message === "会话名称不能包含换行。",
+  );
+
+  assert.throws(
+    () => parseBrowserRequest(JSON.stringify({
+      type: "session.rename",
+      requestId: "r3",
+      projectId: "projects/demo",
+      sessionId: "session-1",
+      title: "名".repeat(161),
+    })),
+    (error: unknown) =>
+      error instanceof ProtocolError && error.code === "invalid_field" &&
+      error.message === "会话名称太长。",
   );
 });

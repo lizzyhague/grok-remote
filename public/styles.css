@@ -462,6 +462,24 @@ button.small {
 .app-alert-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.rename-field {
+  display: block;
+  margin: 0.85rem 0 0;
+}
+
+.rename-field input {
+  width: 100%;
+  padding: 0.65rem;
+  background: #14111c;
+  color: #fff;
+}
+
+.rename-card .form-status:empty {
+  min-height: 0;
+  margin: 0;
 }
 
 .session-select-label {

@@ -20,6 +20,7 @@ export const MAX_BROWSER_MESSAGE_BYTES = 2_097_152;
 export const MAX_MESSAGE_TEXT_BYTES = 1_048_576;
 
 const MAX_MESSAGE_TEXT_LENGTH = 524_288;
+const MAX_SESSION_TITLE_LENGTH = 160;
 
 export type BrowserRequest =
   | { type: "projects.list"; requestId: string }
@@ -51,6 +52,13 @@ export type BrowserRequest =
     projectId: string;
     sessionId: string;
     marked: boolean;
+  }
+  | {
+    type: "session.rename";
+    requestId: string;
+    projectId: string;
+    sessionId: string;
+    title: string;
   }
   | { type: "history.older"; requestId: string }
   | { type: "events.resume"; requestId: string; afterSeq: number }
@@ -190,6 +198,14 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         projectId: requireString(value.projectId, "项目 ID", requestId, 1_024),
         sessionId: requireString(value.sessionId, "会话 ID", requestId, 1_024),
         marked: requireBoolean(value.marked, "钉住", requestId),
+      };
+    case "session.rename":
+      return {
+        type: "session.rename",
+        requestId,
+        projectId: requireString(value.projectId, "项目 ID", requestId, 1_024),
+        sessionId: requireString(value.sessionId, "会话 ID", requestId, 1_024),
+        title: requireSessionTitle(value.title, requestId),
       };
     case "history.older":
       return { type: "history.older", requestId };
@@ -359,6 +375,23 @@ function requireMessageText(
     );
   }
   return text;
+}
+
+function requireSessionTitle(value: unknown, requestId: string): string {
+  if (typeof value !== "string") {
+    throw new ProtocolError("invalid_field", "会话名称不能为空。", requestId);
+  }
+  const title = value.trim();
+  if (!title) {
+    throw new ProtocolError("invalid_field", "会话名称不能为空。", requestId);
+  }
+  if (title.length > MAX_SESSION_TITLE_LENGTH) {
+    throw new ProtocolError("invalid_field", "会话名称太长。", requestId);
+  }
+  if (/[\r\n]/u.test(title)) {
+    throw new ProtocolError("invalid_field", "会话名称不能包含换行。", requestId);
+  }
+  return title;
 }
 
 function requireBoolean(value: unknown, label: string, requestId: string): boolean {

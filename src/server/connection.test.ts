@@ -190,6 +190,76 @@ test("archives an open session and notifies every connected device", async () =>
   services.presence.dispose();
 });
 
+test("renames a session without requiring the current session binding", async () => {
+  let ensured: { projectId: string; sessionId: string } | null = null;
+  let renamed: { sessionId: string; title: string } | null = null;
+  const turns = fakeTurns();
+  turns.renameSession = async (sessionId, title) => {
+    renamed = { sessionId, title };
+    return { sessionId, title };
+  };
+  const services = makeServices(turns);
+  services.sessions.ensureMeta = async (projectId, sessionId) => {
+    ensured = { projectId, sessionId };
+  };
+  const socket = new FakeSocket();
+  const connection = new BrowserConnection("conn-1", socket, services);
+
+  connection.receiveText(JSON.stringify({
+    type: "session.rename",
+    requestId: "rename-1",
+    projectId: "projects/demo",
+    sessionId: "session-keep",
+    title: "  新名字  ",
+  }));
+  await connection.whenIdle();
+
+  assert.deepEqual(ensured, { projectId: "projects/demo", sessionId: "session-keep" });
+  assert.deepEqual(renamed, { sessionId: "session-keep", title: "新名字" });
+  const response = socket.messages.find((item) =>
+    typeof item === "object" && item !== null &&
+    (item as { requestId?: string }).requestId === "rename-1"
+  ) as { ok: boolean; data: { sessionId: string; title: string } };
+  assert.equal(response.ok, true);
+  assert.deepEqual(response.data, { sessionId: "session-keep", title: "新名字" });
+  await connection.disconnect();
+  services.presence.dispose();
+});
+
+test("does not rename when session meta cannot be created", async () => {
+  let renamed = false;
+  const turns = fakeTurns();
+  turns.renameSession = async (sessionId, title) => {
+    renamed = true;
+    return { sessionId, title };
+  };
+  const services = makeServices(turns);
+  services.sessions.ensureMeta = async () => {
+    throw new Error("找不到这个会话。");
+  };
+  const socket = new FakeSocket();
+  const connection = new BrowserConnection("conn-1", socket, services);
+
+  connection.receiveText(JSON.stringify({
+    type: "session.rename",
+    requestId: "rename-2",
+    projectId: "projects/demo",
+    sessionId: "missing",
+    title: "新名字",
+  }));
+  await connection.whenIdle();
+
+  assert.equal(renamed, false);
+  const response = socket.messages.find((item) =>
+    typeof item === "object" && item !== null &&
+    (item as { requestId?: string }).requestId === "rename-2"
+  ) as { ok: boolean; error?: { message: string } };
+  assert.equal(response.ok, false);
+  assert.match(response.error?.message ?? "", /找不到这个会话/u);
+  await connection.disconnect();
+  services.presence.dispose();
+});
+
 test("releases the project lock after a synchronous session command", async () => {
   const services = makeServices(fakeTurns());
   const socket = new FakeSocket();
@@ -250,6 +320,9 @@ function fakeTurns(): TurnApi {
     },
     activeTurnId() {
       return null;
+    },
+    async renameSession(sessionId, title) {
+      return { sessionId, title };
     },
   };
 }
@@ -314,6 +387,7 @@ function makeServices(turns: TurnApi): BrowserConnectionServices {
       async setMarked(projectId, sessionId, marked) {
         return { ...opened.session, id: sessionId, projectId, marked, pending: false };
       },
+      async ensureMeta() {},
     },
     turns,
     commands: new CommandRunner(

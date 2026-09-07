@@ -42,6 +42,11 @@ const elements = {
   appAlertDialog: byId("app-alert-dialog"),
   appAlertTitle: byId("app-alert-title"),
   appAlertMessage: byId("app-alert-message"),
+  renameSessionDialog: byId("rename-session-dialog"),
+  renameSessionForm: byId("rename-session-form"),
+  renameSessionInput: byId("rename-session-input"),
+  renameSessionStatus: byId("rename-session-status"),
+  renameSessionCancelButton: byId("rename-session-cancel-button"),
   collapseSidebarButton: byId("collapse-sidebar-button"),
   openSidebarButton: byId("open-sidebar-button"),
   sidebarBackdrop: byId("sidebar-backdrop"),
@@ -201,6 +206,13 @@ elements.attachmentInput.addEventListener("change", () => {
   void uploadFiles(files);
 });
 
+elements.renameSessionForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void submitRename();
+});
+elements.renameSessionCancelButton.addEventListener("click", () => {
+  elements.renameSessionDialog.close();
+});
 elements.appView.dataset.sidebarCollapsed = String(state.sidebarCollapsed);
 syncSidebarState();
 
@@ -701,6 +713,7 @@ function createSessionMark(session) {
   button.addEventListener("click", (event) => {
     event.stopPropagation();
     void toggleSessionMark(session);
+    if (!session.marked && session.pending !== true) openRenameDialog(session);
   });
   return button;
 }
@@ -763,6 +776,72 @@ async function toggleSessionMark(session) {
     renderSessionList();
   } catch (error) {
     showNotice(errorMessage(error));
+  }
+}
+
+/** 弹窗开着时会话可能被切走，所以认下打开那一刻的 ID，别跟着当前会话漂。 */
+let renamingSessionId = null;
+let renamingInitialTitle = "";
+
+function openRenameDialog(session) {
+  if (!session || session.pending === true) return;
+  renamingSessionId = session.id;
+  renamingInitialTitle = session.title || "新会话";
+  elements.renameSessionInput.value = renamingInitialTitle;
+  elements.renameSessionStatus.textContent = "";
+  setRenameDialogBusy(false);
+  if (!elements.renameSessionDialog.open) elements.renameSessionDialog.showModal();
+  elements.renameSessionInput.focus();
+  elements.renameSessionInput.select();
+}
+
+async function submitRename() {
+  const session = findSessionSummary(renamingSessionId);
+  if (!session || session.pending === true) {
+    elements.renameSessionDialog.close();
+    return;
+  }
+  const title = elements.renameSessionInput.value.trim();
+  if (!title) {
+    elements.renameSessionStatus.textContent = "会话名称不能为空。";
+    elements.renameSessionInput.focus();
+    return;
+  }
+  if (title === renamingInitialTitle) {
+    elements.renameSessionDialog.close();
+    return;
+  }
+  const projectId = session.projectId || state.projectId;
+  if (!projectId) {
+    elements.renameSessionStatus.textContent = "找不到这个会话所属的项目。";
+    return;
+  }
+  try {
+    setRenameDialogBusy(true);
+    elements.renameSessionStatus.textContent = "";
+    await request("session.rename", {
+      projectId,
+      sessionId: session.id,
+      title,
+    });
+    session.title = title;
+    if (session.id === state.currentSessionId) {
+      state.sessionTitle = title;
+      updateConversationTitle();
+    }
+    renderSessionList();
+    elements.renameSessionDialog.close();
+  } catch (error) {
+    elements.renameSessionStatus.textContent = errorMessage(error);
+  } finally {
+    setRenameDialogBusy(false);
+  }
+}
+
+function setRenameDialogBusy(busy) {
+  elements.renameSessionInput.disabled = busy;
+  for (const button of elements.renameSessionForm.querySelectorAll("button")) {
+    button.disabled = busy;
   }
 }
 
@@ -1357,9 +1436,14 @@ function handleServerEvent(event) {
       break;
     case "session.title":
       if (event.title) {
-        state.sessionTitle = event.title;
-        updateConversationTitle();
-        const found = findSessionSummary(state.currentSessionId);
+        const sessionId = typeof event.sessionId === "string"
+          ? event.sessionId
+          : state.currentSessionId;
+        if (sessionId === state.currentSessionId) {
+          state.sessionTitle = event.title;
+          updateConversationTitle();
+        }
+        const found = findSessionSummary(sessionId);
         if (found) found.title = event.title;
         renderSessionList();
       }
