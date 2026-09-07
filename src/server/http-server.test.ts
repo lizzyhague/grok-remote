@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import WebSocket from "ws";
@@ -20,10 +23,10 @@ test("serves health and authenticated WebSocket only on loopback", async () => {
   const server = new RemoteWebSocketServer({
     token: "test-secret-token-value-32chars!!",
     services,
-    authTimeoutMs: 2_000,
   });
   const address = await server.listen(0);
-  const webSocket = new WebSocket(`ws://${address.host}:${address.port}/ws`);
+  const cookie = await loginCookie(`http://${address.host}:${address.port}`);
+  const webSocket = new WebSocket(`ws://${address.host}:${address.port}/ws`, { headers: { cookie } });
   const opened = once(webSocket, "open");
 
   try {
@@ -56,9 +59,8 @@ test("serves health and authenticated WebSocket only on loopback", async () => {
 
     await withTimeout(opened, "打开 WebSocket");
     webSocket.send(JSON.stringify({
-      type: "auth",
-      requestId: "auth-1",
-      token: "test-secret-token-value-32chars!!",
+      type: "projects.list",
+      requestId: "projects-1",
     }));
     const authMessage = await withTimeout(once(webSocket, "message"), "等待认证响应");
     const auth = JSON.parse(String(authMessage[0])) as { ok: boolean };
@@ -78,15 +80,15 @@ test("only accepts WebSocket upgrades from its own page", async () => {
   const server = new RemoteWebSocketServer({
     token: "test-secret-token-value-32chars!!",
     services,
-    authTimeoutMs: 2_000,
     allowedOrigins: ["https://vps.example.ts.net"],
   });
   const address = await server.listen(0);
   const url = `ws://${address.host}:${address.port}/ws`;
+  const cookie = await loginCookie(`http://${address.host}:${address.port}`);
 
   try {
     const attacker = new WebSocket(url, {
-      headers: { origin: "https://attacker.example" },
+      headers: { cookie, origin: "https://attacker.example" },
     });
     const rejected = await withTimeout(
       once(attacker, "error").then(() => "rejected" as const),
@@ -95,18 +97,18 @@ test("only accepts WebSocket upgrades from its own page", async () => {
     assert.equal(rejected, "rejected");
 
     const sameOrigin = new WebSocket(url, {
-      headers: { origin: `http://${address.host}:${address.port}` },
+      headers: { cookie, origin: `http://${address.host}:${address.port}` },
     });
     await withTimeout(once(sameOrigin, "open"), "打开同源 WebSocket");
     sameOrigin.close();
 
     const proxied = new WebSocket(url, {
-      headers: { origin: "https://vps.example.ts.net" },
+      headers: { cookie, origin: "https://vps.example.ts.net" },
     });
     await withTimeout(once(proxied, "open"), "打开白名单来源的 WebSocket");
     proxied.close();
 
-    const headless = new WebSocket(url);
+    const headless = new WebSocket(url, { headers: { cookie } });
     await withTimeout(once(headless, "open"), "打开无 Origin 的 WebSocket");
     headless.close();
   } finally {
@@ -146,10 +148,11 @@ test("streams same-origin uploads through the shared upload adapter", async () =
   });
   const address = await server.listen(0);
   const origin = `http://${address.host}:${address.port}`;
+  const cookie = await loginCookie(origin);
   try {
     const uploaded = await fetch(`${origin}/attachments/upload`, {
       method: "POST",
-      headers: { origin, "x-upload-ticket": "ticket-secret" },
+      headers: { cookie, origin, "x-upload-ticket": "ticket-secret" },
       body: Buffer.from("hello"),
     });
     assert.equal(uploaded.status, 201);
@@ -171,6 +174,112 @@ test("streams same-origin uploads through the shared upload adapter", async () =
     await withTimeout(server.close(), "关闭服务器");
     await harness.turns.dispose();
     harness.services.presence.dispose();
+  }
+});
+
+test("HTTP login, protected routes and WebSocket use the same persistent cookie", async (t) => {
+  const harness = emptyServices();
+  const token = "test-secret-token-value-32chars!!";
+  let server = new RemoteWebSocketServer({ token, services: harness.services });
+  t.after(async () => {
+    await server.close();
+    await harness.turns.dispose();
+    harness.services.presence.dispose();
+  });
+  let address = await server.listen(0);
+  let origin = `http://${address.host}:${address.port}`;
+  for (const route of ["/auth/session", "/raw?path=note.md", "/attachments/upload"]) {
+    const response = await fetch(origin + route);
+    assert.equal(response.status, 401);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+  }
+  const noCookie = new WebSocket(`ws://${address.host}:${address.port}/ws`);
+  assert.match(String((await once(noCookie, "error"))[0]), /401/);
+  const forged = new WebSocket(`ws://${address.host}:${address.port}/ws`, {
+    headers: { cookie: "grok-remote-session=forged" },
+  });
+  assert.match(String((await once(forged, "error"))[0]), /401/);
+  for (const [body, status] of [["{", 400], [JSON.stringify({ token: "wrong" }), 401],
+    [JSON.stringify({ token: "x".repeat(17000) }), 413]] as const) {
+    const response = await fetch(`${origin}/auth/login`, {
+      method: "POST", headers: { "content-type": "application/json" }, body,
+    });
+    assert.equal(response.status, status);
+    assert.equal(response.headers.get("set-cookie"), null);
+  }
+  const crossSite = await fetch(`${origin}/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://attacker.example" },
+    body: JSON.stringify({ token }),
+  });
+  assert.equal(crossSite.status, 403);
+  const cookie = await loginCookie(origin);
+  await server.close();
+  server = new RemoteWebSocketServer({ token, services: harness.services });
+  address = await server.listen(0);
+  origin = `http://${address.host}:${address.port}`;
+  const session = await fetch(`${origin}/auth/session`, { headers: { cookie } });
+  assert.equal(session.status, 200);
+  assert.ok(session.headers.get("set-cookie")?.startsWith(cookie));
+  const socket = new WebSocket(`ws://${address.host}:${address.port}/ws`, { headers: { cookie } });
+  await once(socket, "open");
+  socket.send(JSON.stringify({ type: "projects.list", requestId: "p" }));
+  assert.equal(JSON.parse(String((await once(socket, "message"))[0])).ok, true);
+  socket.close();
+  await server.close();
+  server = new RemoteWebSocketServer({ token: `${token}-changed`, services: harness.services });
+  address = await server.listen(0);
+  const revoked = await fetch(`http://${address.host}:${address.port}/auth/session`, { headers: { cookie } });
+  assert.equal(revoked.status, 401);
+});
+
+test("raw serves only caged markdown and images with sandbox headers; view assets are available", async (t) => {
+  const temp = await realpath(await mkdtemp(path.join(tmpdir(), "grok-http-files-")));
+  const root = path.join(temp, "root");
+  await mkdir(root);
+  await writeFile(path.join(root, "文档 # ? %.md"), "# Hello\n<script>alert(1)</script>");
+  await writeFile(path.join(root, "image.svg"), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+  await writeFile(path.join(root, "config.json"), "{}");
+  await writeFile(path.join(temp, "outside.md"), "outside");
+  await symlink(path.join(temp, "outside.md"), path.join(root, "escape.md"));
+  const harness = emptyServices();
+  const server = new RemoteWebSocketServer({
+    token: "test-secret-token-value-32chars!!", services: harness.services, fileRoots: [root],
+  });
+  t.after(async () => {
+    await server.close();
+    await harness.turns.dispose();
+    harness.services.presence.dispose();
+    await rm(temp, { recursive: true, force: true });
+  });
+  const address = await server.listen(0);
+  const origin = `http://${address.host}:${address.port}`;
+  const cookie = await loginCookie(origin);
+  for (const file of ["文档 # ? %.md", "image.svg"]) {
+    const url = `${origin}/raw?${new URLSearchParams({ path: path.join(root, file) })}`;
+    const response = await fetch(url, { headers: { cookie } });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+    assert.match(response.headers.get("content-security-policy")!, /^sandbox;/);
+    assert.equal(response.headers.get("content-type"), file.endsWith("md")
+      ? "text/markdown; charset=utf-8" : "image/svg+xml");
+    assert.ok((await response.text()).includes("<script>"));
+    const head = await fetch(url, { method: "HEAD", headers: { cookie } });
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), "");
+    assert.equal(head.headers.get("content-length"), response.headers.get("content-length"));
+  }
+  for (const file of ["../outside.md", "escape.md", "config.json", "missing.png"]) {
+    const response = await fetch(`${origin}/raw?${new URLSearchParams({ path: file })}`, { headers: { cookie } });
+    assert.equal(response.status, 404, file);
+  }
+  assert.equal((await fetch(`${origin}/raw?path=a.md&path=b.md`, { headers: { cookie } })).status, 404);
+  assert.equal((await fetch(`${origin}/raw?path=image.svg`, { method: "POST", headers: { cookie } })).status, 405);
+  for (const asset of ["/view?path=note.md", "/viewer.js?v=1", "/viewer.css?v=1"]) {
+    const response = await fetch(origin + asset);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-security-policy")!, /object-src 'none'/);
   }
 });
 
@@ -259,4 +368,14 @@ function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
       },
     );
   });
+}
+
+async function loginCookie(origin: string): Promise<string> {
+  const response = await fetch(`${origin}/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token: "test-secret-token-value-32chars!!" }),
+  });
+  assert.equal(response.status, 200);
+  return response.headers.get("set-cookie")!.split(";")[0]!;
 }

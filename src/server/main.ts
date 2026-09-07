@@ -62,6 +62,7 @@ export async function main(): Promise<void> {
   let cleanupTimer: NodeJS.Timeout | null = null;
   const remote = new RemoteWebSocketServer({
     token,
+    fileRoots: projects.fileRoots(),
     allowedOrigins: readAllowedOrigins(process.env.GROK_REMOTE_ALLOWED_ORIGINS),
     services: {
       projects,

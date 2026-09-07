@@ -1,5 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
-
 import { COMMAND_CATALOG } from "../commands/catalog.ts";
 import { CommandRunner } from "../commands/runner.ts";
 import type { ProjectSummary } from "../projects/catalog.ts";
@@ -102,11 +100,9 @@ export class BrowserRequestError extends Error {
 export class BrowserConnection {
   readonly #id: string;
   readonly #socket: BrowserSocket;
-  readonly #expectedToken: string;
   readonly #services: BrowserConnectionServices;
   readonly #unsubscribeTurns: () => void;
   readonly #unsubscribeSessionChanges: () => void;
-  #authenticated = false;
   #countedPresence = false;
   #disconnected = false;
   #queue: Promise<void> = Promise.resolve();
@@ -118,16 +114,13 @@ export class BrowserConnection {
   constructor(
     id: string,
     socket: BrowserSocket,
-    expectedToken: string,
     services: BrowserConnectionServices,
   ) {
-    if (!expectedToken) {
-      throw new Error("WebSocket 访问令牌不能为空。");
-    }
     this.#id = id;
     this.#socket = socket;
-    this.#expectedToken = expectedToken;
     this.#services = services;
+    services.presence.add();
+    this.#countedPresence = true;
     this.#unsubscribeTurns = services.turns.onEvent((event) => {
       this.#handleTurnEvent(event);
     });
@@ -137,10 +130,6 @@ export class BrowserConnection {
         event: { type: "session.changed", ...event },
       });
     }) ?? (() => {});
-  }
-
-  get authenticated(): boolean {
-    return this.#authenticated;
   }
 
   receiveText(source: string): void {
@@ -188,16 +177,6 @@ export class BrowserConnection {
       throw error;
     }
 
-    if (request.type === "auth") {
-      this.#handleAuth(request);
-      return;
-    }
-    if (!this.#authenticated) {
-      this.#sendFailure(request.requestId, "not_authenticated", "请先验证访问令牌。");
-      this.#socket.close(1008, "Authentication required");
-      return;
-    }
-
     try {
       const data = await this.#dispatch(request);
       this.#send({ type: "response", requestId: request.requestId, ok: true, data });
@@ -210,28 +189,7 @@ export class BrowserConnection {
     }
   }
 
-  #handleAuth(request: Extract<BrowserRequest, { type: "auth" }>): void {
-    if (this.#authenticated) {
-      this.#sendFailure(request.requestId, "already_authenticated", "连接已经验证过了。");
-      return;
-    }
-    if (!tokensEqual(request.token, this.#expectedToken)) {
-      this.#sendFailure(request.requestId, "invalid_token", "访问令牌不正确。");
-      this.#socket.close(1008, "Invalid token");
-      return;
-    }
-    this.#authenticated = true;
-    this.#services.presence.add();
-    this.#countedPresence = true;
-    this.#send({
-      type: "response",
-      requestId: request.requestId,
-      ok: true,
-      data: { authenticated: true },
-    });
-  }
-
-  async #dispatch(request: Exclude<BrowserRequest, { type: "auth" }>): Promise<unknown> {
+  async #dispatch(request: BrowserRequest): Promise<unknown> {
     switch (request.type) {
       case "projects.list":
         return { projects: await this.#services.projects.list() };
@@ -444,7 +402,7 @@ export class BrowserConnection {
   }
 
   #handleTurnEvent(event: BrowserTurnEvent): void {
-    if (!this.#authenticated) return;
+    if (this.#disconnected) return;
     const sessionId = typeof event.sessionId === "string" ? event.sessionId : null;
     const pendingId = typeof event.pendingId === "string" ? event.pendingId : null;
     if (
@@ -493,12 +451,6 @@ export class BrowserConnection {
       this.#socket.send(JSON.stringify(message));
     }
   }
-}
-
-function tokensEqual(received: string, expected: string): boolean {
-  const left = Buffer.from(received);
-  const right = Buffer.from(expected);
-  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 function hasTurnId(value: unknown): value is { turnId: string } {

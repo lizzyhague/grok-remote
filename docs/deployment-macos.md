@@ -80,7 +80,7 @@ chmod 700 "$HOME/Library/Logs/grok-remote"
 | `__RUNTIME_PATH__` | 包含 Node、Grok 和系统命令目录的完整 `PATH` |
 | `__LOG_DIR__` | 上一步创建的日志目录绝对路径 |
 
-模板通过 Node.js 的 `--env-file` 读取权限为 `0600` 的服务环境文件，真实 WebSocket 令牌
+模板通过 Node.js 的 `--env-file` 读取权限为 `0600` 的服务环境文件，真实登录令牌
 和代理参数不会进入权限为 `0644` 的 plist。
 
 先检查 plist 和遗留占位符：

@@ -63,11 +63,15 @@ async function main(): Promise<void> {
     if (!String(await page.text()).includes("Grok Remote")) {
       throw new Error("首页不是 Grok Remote");
     }
-    const socket = new WebSocket(`ws://${address.host}:${address.port}/ws`);
+    const login = await fetch(`http://${address.host}:${address.port}/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    if (login.status !== 200) throw new Error("认证失败");
+    const cookie = login.headers.get("set-cookie")!.split(";")[0]!;
+    const socket = new WebSocket(`ws://${address.host}:${address.port}/ws`, { headers: { cookie } });
     await once(socket, "open");
-    socket.send(JSON.stringify({ type: "auth", requestId: "a", token }));
-    const auth = JSON.parse(String((await once(socket, "message"))[0]));
-    if (!auth.ok) throw new Error("认证失败");
     socket.send(JSON.stringify({ type: "projects.list", requestId: "p" }));
     const projectsMessage = JSON.parse(String((await once(socket, "message"))[0]));
     if (!projectsMessage.data?.projects?.length) throw new Error("项目列表为空");

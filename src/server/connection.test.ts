@@ -27,9 +27,8 @@ test("accepts a message and returns accepted without waiting for Grok", async ()
   const turns = fakeTurns();
   const services = makeServices(turns);
   const socket = new FakeSocket();
-  const connection = new BrowserConnection("conn-1", socket, "secret", services);
+  const connection = new BrowserConnection("conn-1", socket, services);
 
-  connection.receiveText(JSON.stringify({ type: "auth", requestId: "a", token: "secret" }));
   await connection.whenIdle();
 
   connection.receiveText(JSON.stringify({
@@ -72,8 +71,7 @@ test("creates upload tickets from the authenticated open session binding", async
     },
   };
   const socket = new FakeSocket();
-  const connection = new BrowserConnection("conn-1", socket, "secret", services);
-  connection.receiveText(JSON.stringify({ type: "auth", requestId: "a", token: "secret" }));
+  const connection = new BrowserConnection("conn-1", socket, services);
   connection.receiveText(JSON.stringify({
     type: "session.start",
     requestId: "s",
@@ -106,14 +104,14 @@ test("creates upload tickets from the authenticated open session binding", async
   services.presence.dispose();
 });
 
-test("redacts missing authentication", async () => {
+test("rejects legacy auth frames after cookie-authenticated upgrade", async () => {
   const services = makeServices(fakeTurns());
   const socket = new FakeSocket();
-  const connection = new BrowserConnection("conn-1", socket, "secret", services);
-  connection.receiveText(JSON.stringify({ type: "projects.list", requestId: "p" }));
+  const connection = new BrowserConnection("conn-1", socket, services);
+  connection.receiveText(JSON.stringify({ type: "auth", requestId: "p", token: "secret" }));
   await connection.whenIdle();
   const message = socket.messages[0] as { error?: { code: string } };
-  assert.equal(message.error?.code, "not_authenticated");
+  assert.equal(message.error?.code, "unknown_message_type");
   await connection.disconnect();
   services.presence.dispose();
 });
@@ -139,11 +137,9 @@ test("archives an open session and notifies every connected device", async () =>
   };
   const firstSocket = new FakeSocket();
   const secondSocket = new FakeSocket();
-  const first = new BrowserConnection("first", firstSocket, "secret", services);
-  const second = new BrowserConnection("second", secondSocket, "secret", services);
+  const first = new BrowserConnection("first", firstSocket, services);
+  const second = new BrowserConnection("second", secondSocket, services);
 
-  first.receiveText(JSON.stringify({ type: "auth", requestId: "a1", token: "secret" }));
-  second.receiveText(JSON.stringify({ type: "auth", requestId: "a2", token: "secret" }));
   first.receiveText(JSON.stringify({
     type: "session.start",
     requestId: "s1",
@@ -197,9 +193,8 @@ test("archives an open session and notifies every connected device", async () =>
 test("releases the project lock after a synchronous session command", async () => {
   const services = makeServices(fakeTurns());
   const socket = new FakeSocket();
-  const connection = new BrowserConnection("conn-1", socket, "secret", services);
+  const connection = new BrowserConnection("conn-1", socket, services);
 
-  connection.receiveText(JSON.stringify({ type: "auth", requestId: "a", token: "secret" }));
   connection.receiveText(JSON.stringify({
     type: "session.start",
     requestId: "s",

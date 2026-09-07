@@ -1,10 +1,10 @@
-const CACHE_NAME = "grok-remote-shell-v28";
+const CACHE_NAME = "grok-remote-shell-v29";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/styles.css?v=21",
   "/boot.js?v=11",
-  "/app.js?v=21",
+  "/app.js?v=22",
   "/markdown.js?v=13",
   "/slash-menu.js?v=10",
   "/manifest.webmanifest?v=13",
@@ -33,7 +33,9 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin || url.pathname === "/healthz") {
+  // Cache only the public application shell, never authenticated responses.
+  if (url.origin !== self.location.origin ||
+      !APP_SHELL.includes(url.pathname + url.search)) {
     return;
   }
 

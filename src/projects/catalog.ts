@@ -83,6 +83,10 @@ export class ProjectCatalog {
     return new ProjectCatalog(resolvedRoots);
   }
 
+  fileRoots(): string[] {
+    return this.#roots.map((root) => root.realPath);
+  }
+
   async list(): Promise<ProjectSummary[]> {
     const projects = await this.#scan();
     return projects.map(({ path: _path, ...summary }) => summary);

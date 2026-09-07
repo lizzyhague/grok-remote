@@ -69,7 +69,8 @@ const elements = {
 };
 
 const state = {
-  token: "",
+  reconnectEnabled: true,
+  connectAttempt: 0,
   socket: null,
   requestId: 0,
   pending: new Map(),
@@ -204,11 +205,8 @@ elements.appView.dataset.sidebarCollapsed = String(state.sidebarCollapsed);
 syncSidebarState();
 
 markReady();
-const saved = stateGet(TOKEN_KEY);
-if (saved) {
-  elements.tokenInput.value = saved;
-  void connect(saved);
-}
+removeStored(TOKEN_KEY);
+void connect();
 
 function markReady() {
   window.grokRemoteReady = true;
@@ -219,8 +217,42 @@ function markReady() {
 }
 
 async function connect(token) {
-  state.token = token;
-  stateSet(TOKEN_KEY, token);
+  const attempt = ++state.connectAttempt;
+  closeSocket();
+  state.reconnectEnabled = true;
+  try {
+    const response = token
+      ? await fetch("/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token }),
+        cache: "no-store",
+      })
+      : await fetch("/auth/session", { cache: "no-store" });
+    if (attempt !== state.connectAttempt) return;
+    elements.tokenInput.value = "";
+    if (response.status === 401) {
+      state.reconnectEnabled = false;
+      showLogin();
+      elements.loginStatus.textContent = token ? "访问令牌不正确。" : "请登录。";
+      return;
+    }
+    if (!response.ok) throw new Error("登录服务暂时不可用。");
+    const returnTo = new URLSearchParams(location.search).get("returnTo");
+    if (returnTo?.startsWith("/view?")) {
+      const target = new URL(returnTo, location.origin);
+      if (target.origin === location.origin && target.pathname === "/view") {
+        location.replace(target.href);
+        return;
+      }
+    }
+  } catch (error) {
+    if (attempt !== state.connectAttempt) return;
+    elements.loginStatus.textContent = errorMessage(error);
+    setConnectionStatus("disconnected", "已断开，正在重连");
+    scheduleReconnect();
+    return;
+  }
   setConnectionStatus("connecting", "正在连接");
   elements.loginStatus.textContent = "正在连接……";
   closeSocket();
@@ -228,30 +260,37 @@ async function connect(token) {
   const socket = new WebSocket(`${protocol}//${location.host}/ws`);
   state.socket = socket;
   socket.addEventListener("open", () => {
+    if (state.socket !== socket) return;
     void (async () => {
       // 会话是绑在连接上的（服务端 #requireSession），重连换了连接就等于没打开
       // 会话：发消息和申请上传票据都会被拒。所以这里要把断线前那个会话接回来。
       const previousSessionId = state.currentSessionId;
       try {
-        await request("auth", { token });
         showApp();
         setConnectionStatus("connected", "已连接");
         await loadProjects();
         await ensureSlashMenu();
         if (previousSessionId) await restoreSessionAfterReconnect(previousSessionId);
       } catch (error) {
+        if (state.socket !== socket) return;
+        closeSocket();
+        setConnectionStatus("disconnected", "已断开，正在重连");
         elements.loginStatus.textContent = errorMessage(error);
-        showLogin();
+        scheduleReconnect();
       }
     })();
   });
-  socket.addEventListener("message", (event) => handleSocketMessage(String(event.data)));
+  socket.addEventListener("message", (event) => {
+    if (state.socket === socket) handleSocketMessage(String(event.data));
+  });
   socket.addEventListener("close", () => {
+    if (state.socket !== socket) return;
     rejectPending(new Error("连接已断开。"));
     setConnectionStatus("disconnected", "已断开，正在重连");
     scheduleReconnect();
   });
   socket.addEventListener("error", () => {
+    if (state.socket !== socket) return;
     elements.loginStatus.textContent = "无法连接到主机。";
   });
 }
@@ -2182,9 +2221,10 @@ function closeSocket() {
     state.reconnectTimer = null;
   }
   if (state.socket) {
-    state.socket.onclose = null;
-    try { state.socket.close(); } catch {}
+    const socket = state.socket;
     state.socket = null;
+    rejectPending(new Error("连接已关闭。"));
+    try { socket.close(); } catch {}
   }
 }
 
@@ -2352,10 +2392,10 @@ function migrateLocalSessionState(previousSessionId, nextSessionId) {
 }
 
 function scheduleReconnect() {
-  if (state.reconnectTimer || !state.token) return;
+  if (state.reconnectTimer || !state.reconnectEnabled) return;
   state.reconnectTimer = window.setTimeout(() => {
     state.reconnectTimer = null;
-    void connect(state.token);
+    void connect();
   }, 1200);
 }
 

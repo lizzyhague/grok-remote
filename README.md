@@ -36,7 +36,7 @@
 
 | 变量 | 作用 |
 | --- | --- |
-| `GROK_REMOTE_TOKEN` | WebSocket 登录令牌，至少 32 个字符 |
+| `GROK_REMOTE_TOKEN` | HTTP / WebSocket 共用的登录凭据，至少 32 个字符 |
 | `GROK_REMOTE_PORT` | Node 回环端口；未设置时程序默认 3000，正式部署建议显式设置 |
 | `GROK_REMOTE_ALLOWED_ORIGINS` | 额外允许的 Origin，逗号分隔 |
 | `GROK_REMOTE_PROJECTS_CONFIG` | 项目白名单文件路径 |
@@ -63,6 +63,35 @@ GROK_REMOTE_TOKEN="$(openssl rand -hex 32)" \
 
 本地健康检查：`http://127.0.0.1:3000/healthz`。生产环境的 HTTPS 入口端口与
 Node 回环端口是两项独立配置，不要求使用相同数字。
+
+## 登录与文件查看
+
+通过 HTTPS 入口登录。前端将令牌提交到 `POST /auth/login`，后端签发
+`grok-remote-session` cookie（`HttpOnly`、`Secure`、`SameSite=Strict`、`Path=/`）。
+HTTP 文件请求、附件上传和 WebSocket 握手统一检查该 cookie；WebSocket 不再接受首帧 `auth`。
+升级后各浏览器需要重新登录一次，旧版 localStorage 中的令牌会被删除。
+
+签名凭据没有服务端到期时间，也不依赖内存会话表。保持 `GROK_REMOTE_TOKEN` 不变，
+重启后登录状态仍有效；更换该值并重启会让已签发的 cookie 全部失效。
+浏览器 cookie 使用 400 天的持久保存期限，并在已登录的 HTTP 请求中续存；
+长期未访问、浏览器清理或删除 cookie 后需要重新登录。
+
+文件链接使用当前应用的 HTTPS origin：
+
+```text
+https://grok.example.com/view?path=%2Fsrv%2Fprojects%2Fdemo%2FREADME.md
+https://grok.example.com/view?path=demo%2Fdiagram.svg
+```
+
+`path` 是 URL 编码后的主机绝对路径，或相对于 `projects.json` 中 `roots` 的路径。
+有多个根时，相对路径按配置顺序查找；为避免同名文件歧义，建议使用绝对路径。
+只允许访问这些根目录内的 `.md`、`.svg`、`.png`、`.jpg`、`.jpeg`、`.gif`、
+`.webp`、`.avif`、`.bmp`、`.ico` 文件（后缀不区分大小写）。路径越界、软链接逃逸、
+目录和其它后缀均返回 404，没有下载兜底或目录浏览。
+
+`/view` 在浏览器中复用 Markdown 渲染器，图片使用 `<img>`；未登录时提供登录入口并保留
+目标链接。`/raw?path=...` 返回文件内容，带 `nosniff`、CSP sandbox 和 `no-store`。
+Service Worker 仅缓存公开的应用静态文件，不缓存鉴权响应或文件内容。
 
 ## 会话整理
 
