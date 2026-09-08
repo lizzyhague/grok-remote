@@ -29,8 +29,7 @@
 - 一份项目白名单 `projects.json`（可与其它 Remote 共用，用 `GROK_REMOTE_PROJECTS_CONFIG` 指向）
 - 使用附件时，需要与 Grok Remote 同一 Unix 账号运行的共享 `ai-remote-upload` 服务
 
-部署说明分为通用准备、[Linux + systemd](docs/deployment.md) 和
-[macOS + launchd](docs/deployment-macos.md)。
+部署说明见 [`docs/deployment.md`](docs/deployment.md)，含通用准备、Linux + systemd 和 macOS + launchd。
 
 ## 环境变量
 
