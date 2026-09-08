@@ -77,6 +77,8 @@ const state = {
   reconnectEnabled: true,
   connectAttempt: 0,
   socket: null,
+  connectionReady: false,
+  replayingEvents: false,
   requestId: 0,
   pending: new Map(),
   reconnectTimer: null,
@@ -232,6 +234,7 @@ async function connect(token) {
   const attempt = ++state.connectAttempt;
   closeSocket();
   state.reconnectEnabled = true;
+  updateControls();
   try {
     const response = token
       ? await fetch("/auth/login", {
@@ -279,10 +282,16 @@ async function connect(token) {
       const previousSessionId = state.currentSessionId;
       try {
         showApp();
-        setConnectionStatus("connected", "已连接");
         await loadProjects();
+        if (state.socket !== socket) return;
         await ensureSlashMenu();
+        if (state.socket !== socket) return;
         if (previousSessionId) await restoreSessionAfterReconnect(previousSessionId);
+        if (state.socket !== socket || socket.readyState !== WebSocket.OPEN) return;
+        state.connectionReady = true;
+        setConnectionStatus("connected", "已连接");
+        updateControls();
+        await flushQueuedAttachments();
       } catch (error) {
         if (state.socket !== socket) return;
         closeSocket();
@@ -297,8 +306,10 @@ async function connect(token) {
   });
   socket.addEventListener("close", () => {
     if (state.socket !== socket) return;
+    state.connectionReady = false;
     rejectPending(new Error("连接已断开。"));
     setConnectionStatus("disconnected", "已断开，正在重连");
+    updateControls();
     scheduleReconnect();
   });
   socket.addEventListener("error", () => {
@@ -460,11 +471,13 @@ async function resumeSession(sessionId) {
  * 归档或删掉了，那就退回列表并说明原因，而不是把错误顶在界面上不动。
  */
 async function restoreSessionAfterReconnect(sessionId) {
+  const socket = state.socket;
   try {
     const opened = await request("session.resume", {
       projectId: state.projectId,
       sessionId,
     });
+    if (state.socket !== socket) return;
     // 屏幕上已经铺着这个会话，就别再重铺一遍：clearTimeline() 加整段重建会让
     // 对话肉眼可见地翻一次。断线期间漏掉的用 events.resume 按 seq 补进来就够了，
     // 服务端的事件是落盘按 seq 读的，不是内存里的短缓冲。
@@ -474,13 +487,13 @@ async function restoreSessionAfterReconnect(sessionId) {
       applyOpenedSession(opened);
     }
   } catch (error) {
+    // 连接恢复途中再次断线时保留草稿，交给下一次重连继续恢复。
+    if (state.socket !== socket || socket.readyState !== WebSocket.OPEN) throw error;
     resetCurrentSession();
     showEmpty("选择以前的会话，或者新建一个会话。");
     showNotice(`${errorMessage(error)}断线前的会话没能接回来。`);
     return;
   }
-  // 断线期间挑的附件在这里接着传完。
-  await flushQueuedAttachments();
 }
 
 /**
@@ -488,6 +501,8 @@ async function restoreSessionAfterReconnect(sessionId) {
  * 只把跟着连接走的那些状态接回来，再补上断线期间错过的事件。
  */
 function applyResumedSessionInPlace(opened) {
+  const socket = state.socket;
+  const sessionId = state.currentSessionId;
   const missedAfterSeq = state.lastSeq;
   state.sessionTitle = opened.session?.title || state.sessionTitle;
   state.alwaysApprove = opened.alwaysApprove === true;
@@ -500,12 +515,40 @@ function applyResumedSessionInPlace(opened) {
   syncApprovalNotice();
   void request("events.resume", { afterSeq: missedAfterSeq })
     .then((data) => {
-      for (const event of data?.events ?? []) handleServerEvent(event);
+      if (state.socket !== socket || state.currentSessionId !== sessionId) return;
+      replayServerEvents(data?.events ?? []);
     })
     .catch((error) => showNotice(errorMessage(error)));
   updateControls();
   renderSessionList();
   void retryOutboxForCurrentSession();
+}
+
+/** 补回已经发生的内容时一次显示，保留阅读位置，不重播逐字动画和滚动。 */
+function replayServerEvents(events) {
+  if (events.length === 0) return;
+  const stickToBottom = isNearBottom();
+  const scrollTop = elements.timeline.scrollTop;
+  state.replayingEvents = true;
+  try {
+    for (const event of events) handleServerEvent(event);
+    for (const stream of state.assistantStreams.values()) {
+      if (stream.frame !== null) cancelAnimationFrame(stream.frame);
+      stream.frame = null;
+      if (stream.markdownRendered) continue;
+      if (stream.completed) finishAssistant(stream);
+      else {
+        stream.shown = stream.target;
+        if (stream.textElement) stream.textElement.textContent = stream.target;
+      }
+    }
+  } finally {
+    state.replayingEvents = false;
+    elements.timeline.scrollTo({
+      top: stickToBottom ? elements.timeline.scrollHeight : scrollTop,
+      behavior: "instant",
+    });
+  }
 }
 
 async function reloadAfterRewind(sessionId, promptText) {
@@ -542,7 +585,7 @@ function applyOpenedSession(opened) {
   const resumeAfterSeq = opened.resumeAfterSeq ?? 0;
   if (resumeAfterSeq < state.lastSeq || state.taskRunning) {
     void request("events.resume", { afterSeq: resumeAfterSeq }).then((data) => {
-      for (const event of data?.events ?? []) handleServerEvent(event);
+      replayServerEvents(data?.events ?? []);
     }).catch((error) => showNotice(errorMessage(error)));
   }
   updateControls();
@@ -1241,8 +1284,8 @@ async function uploadFile(file) {
  * flushQueuedAttachments() 再叫一次；失败后也可以由「重试」再叫一次。
  */
 async function startUpload(draft) {
-  if (!draft.file) return;
-  if (state.socket?.readyState !== WebSocket.OPEN) {
+  if (!draft.file || state.attachmentUploads.has(draft.clientId)) return;
+  if (state.socket?.readyState !== WebSocket.OPEN || !state.connectionReady) {
     Object.assign(draft, { status: "queued", statusText: "等待重新连接" });
     renderAttachmentList();
     updateControls();
@@ -1261,6 +1304,7 @@ async function startUpload(draft) {
   }
 
   const { clientId, file } = draft;
+  const socket = state.socket;
   const controller = new AbortController();
   state.attachmentUploads.set(clientId, controller);
   Object.assign(draft, { status: "requesting", statusText: "正在申请上传" });
@@ -1299,7 +1343,8 @@ async function startUpload(draft) {
     persistCurrentAttachmentDraft();
   } catch (error) {
     // 断线导致的失败不算失败，回到队列里等下一次接回会话。
-    if (state.socket?.readyState !== WebSocket.OPEN && error?.name !== "AbortError") {
+    if ((state.socket !== socket || !state.connectionReady ||
+        state.socket?.readyState !== WebSocket.OPEN) && error?.name !== "AbortError") {
       Object.assign(draft, { status: "queued", statusText: "等待重新连接" });
     } else {
       Object.assign(draft, {
@@ -1311,6 +1356,8 @@ async function startUpload(draft) {
     state.attachmentUploads.delete(clientId);
     renderAttachmentList();
     updateControls();
+    if (draft.status === "queued" && state.connectionReady &&
+        state.pendingAttachments.includes(draft)) void startUpload(draft);
   }
 }
 
@@ -1638,6 +1685,7 @@ function finishAssistant(stream) {
 }
 
 function scheduleAssistantFrame(stream) {
+  if (state.replayingEvents) return;
   if (stream.frame !== null) return;
   stream.frame = requestAnimationFrame(() => animateAssistant(stream));
 }
@@ -2072,7 +2120,7 @@ async function ensureSlashMenu() {
 }
 
 function updateControls() {
-  const connected = state.socket?.readyState === WebSocket.OPEN;
+  const connected = state.socket?.readyState === WebSocket.OPEN && state.connectionReady;
   const hasSession = Boolean(state.currentSessionId);
   const hasText = Boolean(elements.messageInput.value.trim());
   const hasAttachments = readyAttachments().length > 0;
@@ -2237,6 +2285,7 @@ function isNearBottom() {
 }
 
 function scrollToBottom(force) {
+  if (state.replayingEvents) return;
   if (force || isNearBottom()) {
     elements.timeline.scrollTop = elements.timeline.scrollHeight;
   }
@@ -2255,7 +2304,8 @@ function showLogin() {
 function showApp() {
   elements.loginView.hidden = true;
   elements.appView.hidden = false;
-  resetCurrentSession();
+  // 重连时已有会话、附件和阅读位置；显示界面不能顺带清空它们。
+  if (!state.currentSessionId) resetCurrentSession();
 }
 
 function setConnectionStatus(status, text) {
@@ -2300,6 +2350,7 @@ function hideNotice() {
 }
 
 function closeSocket() {
+  state.connectionReady = false;
   if (state.reconnectTimer) {
     window.clearTimeout(state.reconnectTimer);
     state.reconnectTimer = null;

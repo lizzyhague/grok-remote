@@ -19,6 +19,8 @@ function harness(fetch, search = "") {
     showLogin: () => actions.push(["login"]),
     showApp: () => actions.push(["app"]),
     setConnectionStatus() {},
+    updateControls() {},
+    flushQueuedAttachments: async () => {},
     scheduleReconnect: () => actions.push(["retry"]),
     errorMessage: (error) => error.message,
     loadProjects: async () => actions.push(["projects"]),
@@ -26,6 +28,8 @@ function harness(fetch, search = "") {
     restoreSessionAfterReconnect: async (id) => actions.push(["restore", id]),
     rejectPending() {}, handleSocketMessage() {},
     WebSocket: class {
+      static OPEN = 1;
+      readyState = 1;
       listeners = {};
       constructor(url) { this.url = url; sockets.push(this); }
       addEventListener(name, listener) { this.listeners[name] = listener; }
