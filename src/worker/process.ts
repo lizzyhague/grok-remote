@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 import { memoryLowMessage, type MemoryReading } from "../platform/system-resources.ts";
 
-export const DEFAULT_MAX_WORKERS = 2;
+export const DEFAULT_MAX_WORKERS = 4;
 export const DEFAULT_MIN_FREE_MEMORY_BYTES = 512 * 1_048_576;
 export const WORKER_EXIT_WAIT_MS = 8_000;
 

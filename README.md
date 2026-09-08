@@ -42,7 +42,7 @@
 | `GROK_BIN` | `grok` 可执行文件；默认从 `PATH` 查找 |
 | `GROK_HOME` | 可选。Grok 的数据和会话目录；默认 `~/.grok` |
 | `GROK_REMOTE_STATE_DIR` | 可选。本应用事件日志、权限模式、归档和回收站标记；默认 `~/.grok-remote` |
-| `GROK_REMOTE_MAX_WORKERS` | 可选。同时活动的 Worker 上限，默认 2；到限拒绝新 Worker |
+| `GROK_REMOTE_MAX_WORKERS` | 可选。同时活动的 Worker 上限，默认 4；到限拒绝新 Worker |
 | `GROK_REMOTE_MIN_FREE_MEMORY_MB` | 可选。启动 Worker 前最低可信可用内存，默认 512；Linux 读取 `MemAvailable`，macOS 读取 `vm_stat` |
 | `AI_REMOTE_UPLOAD_SOCKET` | 可选。共享上传服务 Unix socket；默认 `~/.local/share/ai-remote/upload.sock` |
 
