@@ -69,7 +69,7 @@ test("explicitly sends the selected permission mode for new and resumed sessions
 
 test("new-session rules describe browser-viewable file placement and links", () => {
   assert.match(GROK_REMOTE_SESSION_RULES, /正式文件放在它本来应该在的位置/u);
-  assert.match(GROK_REMOTE_SESSION_RULES, /Git 忽略的 notes\/previews\/.*确认该路径确实被忽略/u);
+  assert.match(GROK_REMOTE_SESSION_RULES, /Git 忽略的 previews\/.*确认该路径确实被忽略/u);
   assert.match(GROK_REMOTE_SESSION_RULES, /不要把这类文件放到 ~\/\.grok、\/tmp 或项目外/u);
   assert.match(GROK_REMOTE_SESSION_RULES, /Markdown 链接/u);
   assert.match(GROK_REMOTE_SESSION_RULES, /\/view\?path= 加 URL 编码后的绝对路径/u);
