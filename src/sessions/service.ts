@@ -3,7 +3,8 @@ import path from "node:path";
 
 import type { ProjectCatalog } from "../projects/catalog.ts";
 import { GrokSessionDisk } from "./disk.ts";
-import { parseActivePromptIndex, parseUpdatesJsonl } from "./history.ts";
+import type { AttachmentDisplayIndex } from "./attachment-index.ts";
+import { parseActivePromptIndex, parseUpdatesJsonl, redactHistoryTurns } from "./history.ts";
 import {
   SessionLayoutStore,
   type LayoutOrigin,
@@ -62,6 +63,7 @@ export class SessionService {
   readonly #layout: SessionLayoutStore;
   readonly #now: () => number;
   readonly #isRunning: (sessionId: string) => boolean;
+  readonly #attachmentIndex: AttachmentDisplayIndex | null;
   readonly #listeners = new Set<(event: SessionChangeEvent) => void>();
   #mutationQueue: Promise<void> = Promise.resolve();
 
@@ -73,6 +75,7 @@ export class SessionService {
     options: {
       now?: () => number;
       isRunning?: (sessionId: string) => boolean;
+      attachmentIndex?: AttachmentDisplayIndex;
     } = {},
   ) {
     this.#projects = projects;
@@ -81,6 +84,7 @@ export class SessionService {
     this.#layout = layout;
     this.#now = options.now ?? (() => Math.floor(Date.now() / 1_000));
     this.#isRunning = options.isRunning ?? (() => false);
+    this.#attachmentIndex = options.attachmentIndex ?? null;
   }
 
   onChange(listener: (event: SessionChangeEvent) => void): () => void {
@@ -218,9 +222,21 @@ export class SessionService {
       this.#disk.readUpdatesJsonl(sessionId),
       this.#disk.readRewindPointsJsonl(sessionId),
     ]);
-    const turns = parseUpdatesJsonl(updates, {
+    const attachmentRecords: Array<{
+      messageId: string;
+      attachments: Array<{ id: string; originalName: string; path: string }>;
+    }> = [];
+    let turns = parseUpdatesJsonl(updates, {
       activePromptIndex: parseActivePromptIndex(rewindPoints),
+      attachmentRecords,
     });
+    if (this.#attachmentIndex) {
+      for (const entry of attachmentRecords) {
+        await this.#attachmentIndex.register(sessionId, entry.messageId, entry.attachments);
+      }
+      const mappings = await this.#attachmentIndex.mappingsFor(sessionId);
+      turns = redactHistoryTurns(turns, mappings);
+    }
     const visibleStart = Math.max(0, turns.length - HISTORY_PAGE_SIZE);
     await this.#writeMissingMeta(projectId, sessionId, record);
 
@@ -468,6 +484,7 @@ export class SessionService {
   async #permanentlyDelete(sessionId: string): Promise<void> {
     await this.#disk.delete(sessionId);
     await this.#store.delete(sessionId);
+    await this.#attachmentIndex?.remove(sessionId);
   }
 
   #toSummary(

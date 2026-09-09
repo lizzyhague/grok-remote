@@ -10,6 +10,7 @@ import {
   SessionLayoutStore,
 } from "../sessions/layout-store.ts";
 import { SessionService } from "../sessions/service.ts";
+import { AttachmentDisplayIndex } from "../sessions/attachment-index.ts";
 import { RemoteSessionStore, resolveStateDir } from "../sessions/store.ts";
 import { SharedUploadClient } from "../shared-upload/client.ts";
 import { resolveSharedUploadSocket } from "../shared-upload/paths.ts";
@@ -37,7 +38,9 @@ export async function main(): Promise<void> {
 
   const projects = await ProjectCatalog.fromConfigFile(configPath);
   const disk = new GrokSessionDisk(resolveGrokHome());
-  const store = new RemoteSessionStore(resolveStateDir());
+  const stateDir = resolveStateDir();
+  const store = new RemoteSessionStore(stateDir);
+  const attachmentIndex = await AttachmentDisplayIndex.open(stateDir);
   const layout = await SessionLayoutStore.open(resolveLayoutStatePath());
   const presence = new PresenceTracker();
   const uploads = new SharedUploadClient(resolveSharedUploadSocket());
@@ -47,6 +50,7 @@ export async function main(): Promise<void> {
     presence,
     grokBin,
     uploads,
+    attachmentIndex,
     maxWorkers: readPositiveInt(process.env.GROK_REMOTE_MAX_WORKERS, DEFAULT_MAX_WORKERS),
     minFreeMemoryBytes: readPositiveInt(
       process.env.GROK_REMOTE_MIN_FREE_MEMORY_MB,
@@ -55,6 +59,7 @@ export async function main(): Promise<void> {
   });
   const sessions = new SessionService(projects, disk, store, layout, {
     isRunning: (sessionId) => turns.isBusy(sessionId),
+    attachmentIndex,
   });
   await sessions.discardUnboundPending();
   await turns.markOrphanedTurnsInterrupted();

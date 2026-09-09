@@ -100,7 +100,7 @@ Service Worker 仅缓存公开的应用静态文件，不缓存鉴权响应或�
 
 附件复用独立项目 [`ai-remote-upload`](https://github.com/lizzyhague/ai-remote-upload)：浏览器先通过已认证 WebSocket 申请一次性票据，再把原始字节流式发送到同源 `/attachments/upload`。Grok Remote 不复制附件存储，只保存公开元数据和附件 ID，并在任务排队、运行和等待审批期间维护租约。安装见该项目的部署说明，不要从 Codex Remote 仓库取得服务代码。
 
-一条消息最多引用 100 个附件，单文件最多 25 MiB，且发送给 Grok 的附件原始字节合计最多 25 MiB。PNG、JPEG、GIF 和 WebP 映射为 ACP 图片块；UTF-8 文本映射为 ACP 内嵌文本资源；PDF 和其它二进制文件映射为 ACP blob 资源。最终能否理解某种二进制格式仍取决于当前 Grok 版本和可用工具。
+一条消息最多引用 100 个附件，单文件最多 25 MiB。上传成功后，Remote 把附件真实路径交给 Grok CLI，由 agent 按请求用可用工具读取；页面只显示附件原名，不显示存储路径。Remote 不再按 MIME 解码全文或拒绝普通文件。某种格式最终能不能读，取决于当前 Grok 版本和可用工具。
 
 ## 明确不做
 

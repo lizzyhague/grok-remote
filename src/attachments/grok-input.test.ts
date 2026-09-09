@@ -1,85 +1,76 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import test from "node:test";
 
 import type { ResolvedAttachment } from "../shared-upload/types.ts";
-import {
-  buildGrokPrompt,
-  MAX_GROK_MESSAGE_ATTACHMENT_BYTES,
-  validateGrokAttachments,
-} from "./grok-input.ts";
+import { buildGrokPrompt, validateGrokAttachments } from "./grok-input.ts";
+import { stripPrivateAttachmentPaths } from "./private-paths.ts";
 
-test("maps images, UTF-8 text, and binary files to Grok ACP without exposing paths", async (context) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "grok-attachments-"));
-  context.after(() => rm(directory, { recursive: true, force: true }));
-  const imageBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
-  const textBytes = Buffer.from("secret attachment text\n", "utf8");
-  const pdfBytes = Buffer.from("%PDF-1.7\nbinary", "utf8");
-  const imagePath = path.join(directory, "image.png");
-  const textPath = path.join(directory, "notes.txt");
-  const pdfPath = path.join(directory, "report.pdf");
-  await Promise.all([
-    writeFile(imagePath, imageBytes),
-    writeFile(textPath, textBytes),
-    writeFile(pdfPath, pdfBytes),
+test("sends a path block for images, PDFs, text, zip and invalid UTF-8", () => {
+  const imagePath = "/not-read/screen.png";
+  const pdfPath = "/not-read/report.pdf";
+  const textPath = "/not-read/notes.txt";
+  const zipPath = "/not-read/archive.zip";
+  const brokenPath = "/not-read/broken.bin";
+
+  const prompt = buildGrokPrompt("分析这些附件", [
+    attachment("image-id", "screen.png", "image/png", "image", imagePath, 4),
+    attachment("pdf-id", "report.pdf", "application/pdf", "file", pdfPath, 8),
+    attachment("text-id", "notes.txt", "text/plain", "file", textPath, 15),
+    attachment("zip-id", "archive.zip", "application/octet-stream", "file", zipPath, 2),
+    attachment("bin-id", "broken.bin", "application/octet-stream", "file", brokenPath, 2),
   ]);
 
-  const prompt = await buildGrokPrompt("分析这些附件", [
-    attachment("image-id", "screen.png", "image/png", "image", imageBytes, imagePath),
-    attachment("text-id", "notes.txt", "text/plain", "file", textBytes, textPath),
-    attachment("pdf-id", "report.pdf", "application/pdf", "file", pdfBytes, pdfPath),
-  ]);
-
+  assert.equal(prompt.length, 2);
+  assert.equal(prompt[0]?.type, "text");
   assert.match(prompt[0]?.type === "text" ? prompt[0].text : "", /screen\.png.*image-id/su);
-  assert.deepEqual(prompt[1], {
-    type: "image",
-    data: imageBytes.toString("base64"),
-    mimeType: "image/png",
-  });
-  assert.deepEqual(prompt[2], {
-    type: "resource",
-    resource: {
-      uri: "file://grok-remote-attachments/text-id.txt",
-      mimeType: "text/plain",
-      text: "secret attachment text\n",
-    },
-  });
-  assert.deepEqual(prompt[3], {
-    type: "resource",
-    resource: {
-      uri: "file://grok-remote-attachments/pdf-id.pdf",
-      mimeType: "application/pdf",
-      blob: pdfBytes.toString("base64"),
-    },
-  });
-  assert.equal(JSON.stringify(prompt).includes(directory), false);
+  assert.equal(prompt[1]?.type, "text");
+  const block = prompt[1]?.type === "text" ? prompt[1].text : "";
+  assert.match(block, /\[AI_REMOTE_PRIVATE_ATTACHMENT_PATHS_V1\]/u);
+  assert.ok(block.includes(imagePath));
+  assert.ok(block.includes(zipPath));
+  assert.equal(block.includes("secret attachment text"), false);
+  assert.equal(block.includes("iVBORw"), false);
+  assert.equal(prompt.some((entry) => entry.type === "image" || entry.type === "resource"), false);
 });
 
-test("rejects invalid UTF-8 text and oversized aggregate attachment payloads", async (context) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "grok-attachments-"));
-  context.after(() => rm(directory, { recursive: true, force: true }));
-  const invalid = Buffer.from([0xc3, 0x28]);
-  const filePath = path.join(directory, "invalid.txt");
-  await writeFile(filePath, invalid);
-  await assert.rejects(
-    buildGrokPrompt("", [
-      attachment("invalid-id", "invalid.txt", "text/plain", "file", invalid, filePath),
-    ]),
-    /UTF-8/u,
-  );
+test("keeps display text empty for attachment-only messages and still sends the path block", () => {
+  const prompt = buildGrokPrompt("", [
+    attachment("zip-id", "archive.zip", "application/octet-stream", "file", "/not-read/archive.zip", 2),
+  ]);
+  assert.equal(prompt.length, 2);
+  assert.match(prompt[0]?.type === "text" ? prompt[0].text : "", /archive\.zip/u);
+  const block = prompt[1]?.type === "text" ? prompt[1].text : "";
+  assert.ok(block.includes("/not-read/archive.zip"));
+  assert.equal(stripPrivateAttachmentPaths(block), "");
+});
 
-  const tooLarge = attachment(
-    "large-id",
-    "large.bin",
-    "application/octet-stream",
-    "file",
-    Buffer.alloc(0),
-    filePath,
+test("serializes names with quotes, newlines and Chinese", () => {
+  const prompt = buildGrokPrompt("看这个", [
+    attachment(
+      "id-1",
+      "报\"告\n.pdf",
+      "application/pdf",
+      "file",
+      "/uploads/blobs/ab/id-1.pdf",
+      12,
+    ),
+  ]);
+  const block = prompt[1]?.type === "text" ? prompt[1].text : "";
+  const jsonLine = block.split("\n").find((line) => line.startsWith("{\"attachments\":")) ?? "";
+  const parsed = JSON.parse(jsonLine) as { attachments: Array<{ originalName: string }> };
+  assert.equal(parsed.attachments[0]?.originalName, "报\"告\n.pdf");
+});
+
+test("rejects attachments that have no storage path", () => {
+  assert.throws(
+    () => validateGrokAttachments([
+      attachment("id-1", "missing.bin", "application/octet-stream", "file", "", 1),
+    ]),
+    (error: unknown) => error instanceof Error &&
+      "code" in error &&
+      error.code === "attachment_unreadable" &&
+      !error.message.includes("/"),
   );
-  tooLarge.size = MAX_GROK_MESSAGE_ATTACHMENT_BYTES + 1;
-  assert.throws(() => validateGrokAttachments([tooLarge]), /25 MiB/u);
 });
 
 function attachment(
@@ -87,8 +78,8 @@ function attachment(
   originalName: string,
   detectedMime: string,
   kind: "image" | "file",
-  bytes: Buffer,
   filePath: string,
+  size: number,
 ): ResolvedAttachment {
   return {
     id,
@@ -99,7 +90,7 @@ function attachment(
     declaredMime: detectedMime,
     detectedMime,
     kind,
-    size: bytes.byteLength,
+    size,
     sha256: "test-sha",
     createdAtMs: 1,
     expiresAtMs: 2,

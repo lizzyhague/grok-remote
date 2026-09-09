@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { formatPrivateAttachmentPathsBlock } from "../attachments/private-paths.ts";
 import { GrokSessionDisk } from "./disk.ts";
 import { parseActivePromptIndex, parseUpdatesJsonl } from "./history.ts";
 
@@ -165,6 +166,44 @@ test("parses updates.jsonl into chat items and hides thoughts", () => {
     turns[0]?.items.some((item) => item.type === "message" && item.text.includes("secret")),
     false,
   );
+});
+
+test("strips private attachment path blocks after aggregating user chunks", () => {
+  const attachmentPath = "/example/uploads/blobs/ab/id-1.pdf";
+  const block = formatPrivateAttachmentPathsBlock([{
+    id: "id-1",
+    originalName: "报告.pdf",
+    path: attachmentPath,
+    mimeType: "application/pdf",
+    size: 12,
+  }]);
+  const records: Array<{
+    messageId: string;
+    attachments: Array<{ id: string; originalName: string; path: string }>;
+  }> = [];
+  const source = [
+    updateLine("user_message_chunk", { content: { type: "text", text: "请看这个" } }),
+    updateLine("user_message_chunk", { content: { type: "text", text: `\n\n${block}` } }),
+    updateLine("agent_message_chunk", {
+      content: { type: "text", text: `已读取 ${attachmentPath}` },
+    }),
+  ].join("\n");
+
+  const turns = parseUpdatesJsonl(source, {
+    mappings: [{ id: "id-1", originalName: "报告.pdf", path: attachmentPath }],
+    attachmentRecords: records,
+  });
+  assert.deepEqual(turns[0]?.items.map(textOf), ["请看这个", "已读取 附件：报告.pdf"]);
+  assert.equal(JSON.stringify(turns).includes(attachmentPath), false);
+  assert.equal(records[0]?.attachments[0]?.path, attachmentPath);
+});
+
+test("does not swallow user text that only mentions the path-block marker", () => {
+  const text = "标记叫 [AI_REMOTE_PRIVATE_ATTACHMENT_PATHS_V1] ，后面还有正文。";
+  const turns = parseUpdatesJsonl(
+    updateLine("user_message_chunk", { content: { type: "text", text } }),
+  );
+  assert.equal(textOf(turns[0]?.items[0]), text);
 });
 
 test("starts a new assistant bubble after tools even without message ids", () => {

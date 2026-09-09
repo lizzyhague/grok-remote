@@ -11,6 +11,7 @@ import type { MemoryReading } from "../platform/system-resources.ts";
 import { ProjectCatalog } from "../projects/catalog.ts";
 import { RemoteSessionStore } from "../sessions/store.ts";
 import { PresenceTracker } from "../server/presence.ts";
+import { AttachmentDisplayIndex } from "../sessions/attachment-index.ts";
 import type { SpawnedAgent } from "../worker/process.ts";
 import { TurnRuntime } from "./runtime.ts";
 
@@ -155,8 +156,14 @@ test("leases attachments, sends private content to ACP, and releases without per
   await writeFile(privatePath, "private attachment body\n", "utf8");
   const catalog = await ProjectCatalog.fromRoots([{ id: "projects", path: root }]);
   const store = new RemoteSessionStore(path.join(root, "state"));
+  const attachmentIndex = await AttachmentDisplayIndex.open(path.join(root, "state"));
   const presence = new PresenceTracker();
-  const fake = respondingAgent();
+  const fake = respondingAgent(null, [
+    {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: `读了 ${privatePath}` },
+    },
+  ]);
   let binding: unknown;
   let released = 0;
   const runtime = new TurnRuntime({
@@ -166,6 +173,7 @@ test("leases attachments, sends private content to ACP, and releases without per
     grokBin: "grok",
     availableMemory: ampleMemory,
     spawnAgent: () => fake.agent,
+    attachmentIndex,
     uploads: {
       async createLease(receivedBinding, ownerId, attachmentIds) {
         binding = { receivedBinding, ownerId, attachmentIds };
@@ -225,15 +233,22 @@ test("leases attachments, sends private content to ACP, and releases without per
     (binding as { receivedBinding: unknown }).receivedBinding,
     { caller: "grok", projectId: "projects/demo", sessionId: pending.id },
   );
-  const prompt = (fake.prompts[0] as { prompt: unknown[] }).prompt;
-  assert.equal(JSON.stringify(prompt).includes("private attachment body"), true);
-  assert.equal(JSON.stringify(prompt).includes(privatePath), false);
+  const prompt = (fake.prompts[0] as { prompt: Array<{ type?: string }> }).prompt;
+  assert.equal(JSON.stringify(prompt).includes("private attachment body"), false);
+  assert.equal(JSON.stringify(prompt).includes(privatePath), true);
+  assert.match(JSON.stringify(prompt), /\[AI_REMOTE_PRIVATE_ATTACHMENT_PATHS_V1\]/u);
+  assert.equal(prompt.some((entry) => entry.type === "image" || entry.type === "resource"), false);
   assert.equal(released, 1);
   const stored = await store.eventsSince("grok-session", 0);
   const publicEvents = JSON.stringify(stored);
   assert.equal(publicEvents.includes(privatePath), false);
   assert.equal(publicEvents.includes("private attachment body"), false);
   assert.match(publicEvents, /private-note\.txt/u);
+  assert.match(publicEvents, /附件：private-note\.txt/u);
+  assert.deepEqual(
+    (await attachmentIndex.mappingsFor("grok-session")).map((entry) => entry.path),
+    [privatePath],
+  );
 });
 
 test("command approvals ignore login text and use the concise description", async (context) => {
@@ -303,6 +318,7 @@ test("command approvals ignore login text and use the concise description", asyn
 
 function respondingAgent(
   permissionToolCall: Record<string, unknown> | null = null,
+  updates: Array<Record<string, unknown>> = [],
 ): { agent: SpawnedAgent; exited: Promise<void>; prompts: unknown[] } {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
@@ -365,6 +381,15 @@ function respondingAgent(
       }
       if (request.id === undefined) continue;
       if (request.method === "session/prompt") prompts.push(request.params);
+      if (request.method === "session/prompt") {
+        for (const update of updates) {
+          stdout.write(`${JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: { sessionId: "grok-session", update },
+          })}\n`);
+        }
+      }
       if (request.method === "session/prompt" && permissionToolCall) {
         promptRequestId = request.id;
         stdout.write(`${JSON.stringify({

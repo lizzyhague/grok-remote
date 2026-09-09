@@ -90,6 +90,31 @@ test("keeps a fetched resource address and drops fetched text", () => {
   assert.equal(JSON.stringify(completed).includes("tracker"), false);
 });
 
+test("replaces known attachment paths in tool titles, input and resource addresses", () => {
+  const mapping = {
+    id: "id-1",
+    originalName: "报告.pdf",
+    path: "/example/uploads/blobs/ab/id-1.pdf",
+  };
+  const view = createPublicToolView({
+    title: `Read ${mapping.path}`,
+    kind: "execute",
+    rawInput: { command: `cat ${mapping.path}` },
+  }, [mapping]);
+  assert.equal(view.title.includes(mapping.path), false);
+  assert.equal(view.input?.includes(mapping.path), false);
+  assert.ok(view.title.includes("附件：报告.pdf"));
+  assert.ok(view.input?.includes("附件：报告.pdf"));
+
+  const fetchView = createPublicToolView({
+    kind: "fetch",
+    rawInput: { url: mapping.path },
+  }, [mapping]);
+  assert.deepEqual(fetchView.resources, [
+    { address: "附件：报告.pdf", label: null },
+  ]);
+});
+
 test("uses the command as execute input", () => {
   const view = createPublicToolView({
     _meta: { "x.ai/tool": { name: "run_terminal_command", kind: "execute" } },

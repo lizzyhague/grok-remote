@@ -1,3 +1,9 @@
+import type { AttachmentDisplayMapping } from "../attachments/path-redaction.ts";
+import { redactKnownAttachmentPaths } from "../attachments/path-redaction.ts";
+import {
+  parsePrivateAttachmentPaths,
+  stripPrivateAttachmentPaths,
+} from "../attachments/private-paths.ts";
 import {
   MAX_STORED_COMMAND_OUTPUT,
   type TimelineItem,
@@ -19,6 +25,11 @@ export type ParseUpdatesOptions = {
    * undefined 表示没有可靠的 rewind point 数据，此时只做重复 index 去重。
    */
   activePromptIndex?: number | undefined;
+  mappings?: readonly AttachmentDisplayMapping[];
+  attachmentRecords?: Array<{
+    messageId: string;
+    attachments: AttachmentDisplayMapping[];
+  }>;
 };
 
 /**
@@ -129,7 +140,7 @@ export function parseUpdatesJsonl(
         turns.push(turn);
       }
     }
-    applyUpdate(turn, update, meta);
+    applyUpdate(turn, update, meta, options.mappings ?? []);
   }
 
   const latestByPromptIndex = new Map<number, MutableTurn>();
@@ -155,7 +166,7 @@ export function parseUpdatesJsonl(
       }
       return latestByPromptIndex.get(turn.promptIndex) === turn;
     })
-    .map(freezeTurn);
+    .map((turn) => freezeTurn(turn, options));
 }
 
 type MutableTurn = {
@@ -182,7 +193,12 @@ function createTurn(id: string, promptIndex: number | null): MutableTurn {
   };
 }
 
-function applyUpdate(turn: MutableTurn, update: JsonObject, meta: JsonObject): void {
+function applyUpdate(
+  turn: MutableTurn,
+  update: JsonObject,
+  meta: JsonObject,
+  mappings: readonly AttachmentDisplayMapping[],
+): void {
   const kind = stringField(update.sessionUpdate);
   if (kind === "user_message_chunk") {
     appendMessage(turn, "user", textFromContent(update.content), stringField(update.messageId));
@@ -200,7 +216,7 @@ function applyUpdate(turn: MutableTurn, update: JsonObject, meta: JsonObject): v
   }
   if (kind === "tool_call") {
     const id = stringField(update.toolCallId) ?? `tool-${turn.commands.size}`;
-    const tool = createPublicToolView(update);
+    const tool = createPublicToolView(update, mappings);
     if (tool.kind === "think") {
       turn.breakAssistantMessage = true;
       return;
@@ -231,7 +247,7 @@ function applyUpdate(turn: MutableTurn, update: JsonObject, meta: JsonObject): v
       input: command.input,
       query: null,
       resources: [],
-    }, update);
+    }, update, mappings);
     command.kind = tool.kind;
     command.title = tool.title;
     if (exposesToolText(tool.kind) && tool.input) command.input = clipStoredText(tool.input);
@@ -305,13 +321,61 @@ function appendMessage(
   if (role === "assistant") turn.breakAssistantMessage = false;
 }
 
-function freezeTurn(turn: MutableTurn): TurnSnapshot {
-  return {
+function freezeTurn(turn: MutableTurn, options: ParseUpdatesOptions): TurnSnapshot {
+  const items: TimelineItem[] = [];
+  for (const item of turn.items) {
+    if (item.type === "message") {
+      if (item.role === "user") {
+        const records = parsePrivateAttachmentPaths(item.text);
+        if (records.length > 0) {
+          options.attachmentRecords?.push({
+            messageId: item.id,
+            attachments: records.map((record) => ({
+              id: record.id,
+              originalName: record.originalName,
+              path: record.path,
+            })),
+          });
+        }
+        item.text = stripPrivateAttachmentPaths(item.text);
+      }
+      if (!item.text && item.role === "user") continue;
+      items.push(item);
+      continue;
+    }
+    if (item.type === "note") items.push(item);
+  }
+  const snapshot = {
     id: turn.id,
     status: turn.status,
     error: turn.error,
-    // 重新加载只恢复对话；工具条目只在解析时承担气泡分界作用。
-    items: turn.items.filter((item) => item.type === "message" || item.type === "note"),
+    items,
+  };
+  return redactHistoryTurn(snapshot, options.mappings ?? []);
+}
+
+export function redactHistoryTurns(
+  turns: TurnSnapshot[],
+  mappings: readonly AttachmentDisplayMapping[],
+): TurnSnapshot[] {
+  if (mappings.length === 0) return turns;
+  return turns.map((turn) => redactHistoryTurn(turn, mappings));
+}
+
+function redactHistoryTurn(
+  turn: TurnSnapshot,
+  mappings: readonly AttachmentDisplayMapping[],
+): TurnSnapshot {
+  if (mappings.length === 0) return turn;
+  return {
+    ...turn,
+    error: turn.error ? redactKnownAttachmentPaths(turn.error, mappings) : null,
+    items: turn.items.map((item) => {
+      if (item.type === "message" || item.type === "note") {
+        return { ...item, text: redactKnownAttachmentPaths(item.text, mappings) };
+      }
+      return item;
+    }),
   };
 }
 

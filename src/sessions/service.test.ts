@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 
+import { formatPrivateAttachmentPathsBlock } from "../attachments/private-paths.ts";
 import { ProjectCatalog } from "../projects/catalog.ts";
+import { AttachmentDisplayIndex } from "./attachment-index.ts";
 import { GrokSessionDisk } from "./disk.ts";
 import { SessionLayoutStore } from "./layout-store.ts";
 import { SessionService, TRASH_RETENTION_SECONDS } from "./service.ts";
@@ -34,6 +36,7 @@ async function createFixture(context: TestContext) {
     projectPath,
     grokHome,
     group,
+    root,
   };
 }
 
@@ -282,6 +285,34 @@ test("opens only the active Grok history branch after rewind", async (context) =
   const opened = await service.open(projectId, "session-keep");
   assert.deepEqual(opened.tasks.map((turn) => turn.id), ["base-turn"]);
   assert.equal(JSON.stringify(opened.tasks).includes("rewound"), false);
+});
+
+test("opens history without internal path blocks or stored attachment paths", async (context) => {
+  const { catalog, disk, store, layout, projectId, group, root } = await createFixture(context);
+  const attachmentPath = "/example/uploads/blobs/ab/id-1.pdf";
+  const block = formatPrivateAttachmentPathsBlock([{
+    id: "id-1",
+    originalName: "报告.pdf",
+    path: attachmentPath,
+    mimeType: "application/pdf",
+    size: 12,
+  }]);
+  await writeFile(path.join(group, "session-keep", "updates.jsonl"), [
+    historyUserLine(0, `请看这个\n\n${block}`),
+    historyAgentLine("keep-turn", `打开了 ${attachmentPath}`),
+    historyCompletedLine("keep-turn"),
+  ].join("\n"));
+  const attachmentIndex = await AttachmentDisplayIndex.open(path.join(root, "state"));
+  const service = new SessionService(catalog, disk, store, layout, { attachmentIndex });
+  const opened = await service.open(projectId, "session-keep");
+  const visible = JSON.stringify(opened.tasks);
+  assert.equal(visible.includes(attachmentPath), false);
+  assert.equal(visible.includes("AI_REMOTE_PRIVATE_ATTACHMENT_PATHS_V1"), false);
+  assert.match(visible, /请看这个/u);
+  assert.match(visible, /附件：报告\.pdf/u);
+  await service.moveToTrash(projectId, ["session-keep"], "active");
+  await service.deleteTrash(projectId, ["session-keep"]);
+  assert.deepEqual(await attachmentIndex.mappingsFor("session-keep"), []);
 });
 
 function historyUserLine(promptIndex: number, text: string): string {

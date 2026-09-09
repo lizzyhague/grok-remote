@@ -1,3 +1,6 @@
+import type { AttachmentDisplayMapping } from "../attachments/path-redaction.ts";
+import { redactKnownAttachmentPaths } from "../attachments/path-redaction.ts";
+
 export type PublicToolKind =
   | "read"
   | "edit"
@@ -41,28 +44,50 @@ const MAX_ADDRESS_LENGTH = 2_048;
 const MAX_INPUT_LENGTH = 100_000;
 const MAX_QUERY_LENGTH = 4_096;
 
-export function createPublicToolView(update: Record<string, unknown>): PublicToolView {
+export function createPublicToolView(
+  update: Record<string, unknown>,
+  mappings: readonly AttachmentDisplayMapping[] = [],
+): PublicToolView {
   const kind = inferPublicToolKind(update) ?? "other";
-  return {
+  return redactPublicToolView({
     kind,
     title: toolTitle(update) ?? kind,
     input: exposesToolText(kind) ? publicToolInput(update) : null,
     query: toolQuery(update),
     resources: toolResources(update, kind),
-  };
+  }, mappings);
 }
 
 export function updatePublicToolView(
   current: PublicToolView,
   update: Record<string, unknown>,
+  mappings: readonly AttachmentDisplayMapping[] = [],
 ): PublicToolView {
   const kind = inferPublicToolKind(update) ?? current.kind;
-  return {
+  return redactPublicToolView({
     kind,
     title: toolTitle(update) ?? current.title,
     input: exposesToolText(kind) ? publicToolInput(update) ?? current.input : null,
     query: toolQuery(update) ?? current.query,
     resources: mergeResources(current.resources, toolResources(update, kind)),
+  }, mappings);
+}
+
+function redactPublicToolView(
+  view: PublicToolView,
+  mappings: readonly AttachmentDisplayMapping[],
+): PublicToolView {
+  if (mappings.length === 0) return view;
+  const redact = (text: string) => redactKnownAttachmentPaths(text, mappings);
+  return {
+    ...view,
+    title: redact(view.title),
+    input: view.input == null ? null : redact(view.input),
+    query: view.query == null ? null : redact(view.query).slice(0, MAX_QUERY_LENGTH),
+    resources: view.resources.map((resource) => ({
+      address: redact(resource.address),
+      label: resource.label ? redact(resource.label) : null,
+    })),
   };
 }
 

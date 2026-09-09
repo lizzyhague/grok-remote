@@ -6,6 +6,13 @@ import {
   GrokAttachmentError,
   validateGrokAttachments,
 } from "../attachments/grok-input.ts";
+import type { AttachmentDisplayMapping } from "../attachments/path-redaction.ts";
+import {
+  AttachmentPathStreamRedactor,
+  redactKnownAttachmentPaths,
+  redactKnownAttachmentPathsDeep,
+} from "../attachments/path-redaction.ts";
+import { stripPrivateAttachmentPaths } from "../attachments/private-paths.ts";
 import {
   memoryDegradedMessage,
   readAvailableMemory,
@@ -13,6 +20,7 @@ import {
 } from "../platform/system-resources.ts";
 import type { ResolvedProject } from "../projects/catalog.ts";
 import type { PresenceTracker } from "../server/presence.ts";
+import type { AttachmentDisplayIndex } from "../sessions/attachment-index.ts";
 import { PENDING_SESSION_PREFIX } from "../sessions/types.ts";
 import type { RemoteSessionStore, StoredSessionMeta } from "../sessions/store.ts";
 import type { SharedUploadClient } from "../shared-upload/client.ts";
@@ -91,6 +99,7 @@ type LiveWorker = {
   currentAssistantItemId: string | null;
   assistantSegment: number;
   tools: Map<string, PublicToolView>;
+  pathRedactors: Map<string, { kind: "message" | "command"; redactor: AttachmentPathStreamRedactor }>;
   pendingApproval: PendingApproval | null;
 };
 
@@ -113,6 +122,7 @@ export class TurnRuntime {
     SharedUploadClient,
     "createLease" | "renewLease" | "releaseLease"
   > | undefined;
+  readonly #attachmentIndex: AttachmentDisplayIndex | null;
   readonly #listeners = new Set<(event: BrowserTurnEvent) => void>();
   readonly #workers = new Map<string, LiveWorker>();
   readonly #approvals = new Map<string, { worker: LiveWorker; pending: PendingApproval }>();
@@ -131,6 +141,7 @@ export class TurnRuntime {
     minFreeMemoryBytes?: number;
     availableMemory?: () => Promise<MemoryReading>;
     uploads?: Pick<SharedUploadClient, "createLease" | "renewLease" | "releaseLease">;
+    attachmentIndex?: AttachmentDisplayIndex;
   }) {
     this.#store = options.store;
     this.#projects = options.projects;
@@ -141,6 +152,7 @@ export class TurnRuntime {
     this.#minFreeMemoryBytes = options.minFreeMemoryBytes ?? DEFAULT_MIN_FREE_MEMORY_BYTES;
     this.#availableMemory = options.availableMemory ?? readAvailableMemory;
     this.#uploads = options.uploads;
+    this.#attachmentIndex = options.attachmentIndex ?? null;
     if (this.#uploads) {
       this.#attachmentLeaseTimer = setInterval(() => {
         void this.#renewAttachmentLeases();
@@ -172,9 +184,10 @@ export class TurnRuntime {
   }
 
   pendingApprovals(sessionId: string): ApprovalView[] {
+    const mappings = this.#peekMappings(sessionId);
     return [...this.#approvals.values()]
       .filter((entry) => entry.pending.approval.sessionId === sessionId)
-      .map((entry) => entry.pending.approval);
+      .map((entry) => redactKnownAttachmentPathsDeep(entry.pending.approval, mappings));
   }
 
   cachedModels(): ModelOption[] {
@@ -393,11 +406,14 @@ export class TurnRuntime {
         throw new Error(result.error || "Grok 没有完成对话回退。");
       }
       const promptText = typeof result.prompt_text === "string" ? result.prompt_text : null;
+      const visiblePrompt = promptText
+        ? this.#redactText(worker.sessionKey, stripPrivateAttachmentPaths(promptText))
+        : null;
       await this.#emit(worker.sessionKey, {
         type: "session.rewound",
-        promptText,
+        promptText: visiblePrompt,
       });
-      return { kind: "rewind", sessionId: grokSessionId, promptText };
+      return { kind: "rewind", sessionId: grokSessionId, promptText: visiblePrompt };
     });
   }
 
@@ -520,6 +536,7 @@ export class TurnRuntime {
     await Promise.all([...this.#attachmentLeases.entries()].map(([turnId, lease]) =>
       this.#releaseAttachmentLease(turnId, lease)
     ));
+    await this.#attachmentIndex?.drain();
   }
 
   async #ensureWorker(meta: StoredSessionMeta): Promise<LiveWorker> {
@@ -558,6 +575,7 @@ export class TurnRuntime {
       currentAssistantItemId: null,
       assistantSegment: 0,
       tools: new Map(),
+      pathRedactors: new Map(),
       pendingApproval: null,
     };
 
@@ -617,6 +635,7 @@ export class TurnRuntime {
         worker.currentAssistantItemId = null;
         worker.assistantSegment = 0;
         worker.tools.clear();
+        worker.pathRedactors.clear();
         await this.#emit(worker.sessionKey, {
           type: "turn.status",
           turnId: item.turnId,
@@ -624,11 +643,17 @@ export class TurnRuntime {
         });
         try {
           const grokSessionId = await this.#attachSession(worker);
+          await this.#loadAttachmentMappings(worker.sessionKey);
           let stop = "end_turn";
           if (item.kind === "prompt") {
             if (item.modeId) {
               await worker.client.sessionSetMode(grokSessionId, item.modeId);
             }
+            await this.#registerTaskAttachments(
+              worker.sessionKey,
+              item.turnId,
+              item.attachments,
+            );
             await this.#emit(worker.sessionKey, {
               type: "message.user",
               turnId: item.turnId,
@@ -639,13 +664,14 @@ export class TurnRuntime {
             });
             const result = await worker.client.sessionPrompt(
               grokSessionId,
-              await buildGrokPrompt(item.text, item.attachments),
+              buildGrokPrompt(item.text, item.attachments),
             );
             stop = result.stopReason ?? "end_turn";
           } else {
             await worker.client.sessionCompact(grokSessionId);
           }
           await worker.updates;
+          await this.#flushPathRedactors(worker);
           const status = stop === "cancelled" ? "interrupted" : stop === "end_turn" ? "completed" : "failed";
           await this.#emit(worker.sessionKey, {
             type: "turn.status",
@@ -654,6 +680,7 @@ export class TurnRuntime {
             reason: status === "completed" ? null : stop,
           });
         } catch (error) {
+          await this.#flushPathRedactors(worker);
           await this.#emit(worker.sessionKey, {
             type: "turn.status",
             turnId: item.turnId,
@@ -665,6 +692,7 @@ export class TurnRuntime {
           worker.currentTurnId = null;
           worker.currentAssistantItemId = null;
           worker.tools.clear();
+          worker.pathRedactors.clear();
         }
       }
     } finally {
@@ -720,10 +748,11 @@ export class TurnRuntime {
         worker.assistantSegment += 1;
         worker.currentAssistantItemId = `${turnId}-assistant-${worker.assistantSegment}`;
       }
-      await this.#emit(worker.sessionKey, {
+      await this.#emitStreamDelta(worker, {
         type: "message.delta",
         turnId,
         itemId: worker.currentAssistantItemId,
+        kind: "message",
         text,
       });
       return;
@@ -731,7 +760,8 @@ export class TurnRuntime {
     if (kind === "tool_call") {
       await this.#sealAssistant(worker);
       const itemId = String(update.toolCallId ?? `${turnId}-tool`);
-      const tool = createPublicToolView(update);
+      const mappings = this.#peekMappings(worker.sessionKey);
+      const tool = createPublicToolView(update, mappings);
       worker.tools.set(itemId, tool);
       if (tool.kind === "think") return;
       await this.#emit(worker.sessionKey, {
@@ -745,20 +775,23 @@ export class TurnRuntime {
     }
     if (kind === "tool_call_update") {
       const itemId = String(update.toolCallId ?? `${turnId}-tool`);
-      const previous = worker.tools.get(itemId) ?? createPublicToolView(update);
-      const tool = updatePublicToolView(previous, update);
+      const mappings = this.#peekMappings(worker.sessionKey);
+      const previous = worker.tools.get(itemId) ?? createPublicToolView(update, mappings);
+      const tool = updatePublicToolView(previous, update, mappings);
       worker.tools.set(itemId, tool);
       const output = toolContentText(update.content);
       if (output && exposesToolText(tool.kind) && tool.kind !== "think") {
-        await this.#emit(worker.sessionKey, {
+        await this.#emitStreamDelta(worker, {
           type: "command.output.delta",
           turnId,
           itemId,
+          kind: "command",
           text: output,
         });
       }
       if (update.status === "completed" || update.status === "failed") {
         if (tool.kind !== "think") {
+          await this.#flushStreamDelta(worker, itemId, "command", turnId);
           await this.#emit(worker.sessionKey, {
             type: "command.completed",
             turnId,
@@ -775,11 +808,15 @@ export class TurnRuntime {
 
   async #onPermission(worker: LiveWorker, request: AcpPermissionRequest): Promise<void> {
     const human = isHumanRequired(request.toolCall);
+    const mappings = this.#peekMappings(worker.sessionKey);
+    const rawReason = permissionReason(request.toolCall, human);
     const approval: ApprovalView = {
       approvalId: randomUUID(),
       sessionId: worker.sessionKey,
       kind: human ? "user_input" : permissionKind(request.toolCall),
-      reason: permissionReason(request.toolCall, human),
+      reason: rawReason
+        ? clipApprovalReason(redactKnownAttachmentPaths(rawReason, mappings))
+        : null,
       options: request.options.map((option) => ({
         optionId: option.optionId,
         name: option.name,
@@ -872,6 +909,12 @@ export class TurnRuntime {
 
   async #sealAssistant(worker: LiveWorker): Promise<void> {
     if (!worker.currentAssistantItemId || !worker.currentTurnId) return;
+    await this.#flushStreamDelta(
+      worker,
+      worker.currentAssistantItemId,
+      "message",
+      worker.currentTurnId,
+    );
     await this.#emit(worker.sessionKey, {
       type: "message.completed",
       turnId: worker.currentTurnId,
@@ -883,9 +926,115 @@ export class TurnRuntime {
   async #emit(sessionId: string, event: BrowserTurnEvent): Promise<void> {
     // 事件自带的 sessionId（例如 session.bound 上的原生 Grok id）优先，
     // 不要用落盘目录 id 盖掉。
-    const stored = await this.#store.appendEvent(sessionId, { sessionId, ...event });
+    const redacted = redactKnownAttachmentPathsDeep(event, this.#peekMappings(sessionId));
+    const stored = await this.#store.appendEvent(sessionId, { sessionId, ...redacted });
     const payload = stored.event;
     for (const listener of this.#listeners) listener(payload);
+  }
+
+  #peekMappings(sessionId: string): AttachmentDisplayMapping[] {
+    return this.#attachmentIndex?.peek(sessionId) ?? [];
+  }
+
+  #redactText(sessionId: string, text: string): string {
+    return redactKnownAttachmentPaths(text, this.#peekMappings(sessionId));
+  }
+
+  async #loadAttachmentMappings(sessionId: string): Promise<void> {
+    if (!this.#attachmentIndex) return;
+    await this.#attachmentIndex.mappingsFor(sessionId);
+    this.#applyAttachmentMappings(sessionId, this.#attachmentIndex.peek(sessionId));
+  }
+
+  async #registerTaskAttachments(
+    sessionId: string,
+    messageId: string,
+    attachments: readonly ResolvedAttachment[],
+  ): Promise<void> {
+    if (!this.#attachmentIndex || attachments.length === 0) return;
+    await this.#attachmentIndex.register(
+      sessionId,
+      messageId,
+      attachments.map((attachment) => ({
+        id: attachment.id,
+        originalName: attachment.originalName,
+        path: attachment.path,
+      })),
+    );
+    this.#applyAttachmentMappings(sessionId, this.#attachmentIndex.peek(sessionId));
+  }
+
+  #applyAttachmentMappings(
+    sessionId: string,
+    mappings: readonly AttachmentDisplayMapping[],
+  ): void {
+    const worker = this.#workers.get(sessionId);
+    if (!worker) return;
+    for (const entry of worker.pathRedactors.values()) {
+      entry.redactor.setMappings(mappings);
+    }
+  }
+
+  #pathRedactor(
+    worker: LiveWorker,
+    itemId: string,
+    kind: "message" | "command",
+  ): AttachmentPathStreamRedactor {
+    const existing = worker.pathRedactors.get(itemId);
+    if (existing) return existing.redactor;
+    const created = new AttachmentPathStreamRedactor(this.#peekMappings(worker.sessionKey));
+    worker.pathRedactors.set(itemId, { kind, redactor: created });
+    return created;
+  }
+
+  async #emitStreamDelta(
+    worker: LiveWorker,
+    event: {
+      type: "message.delta" | "command.output.delta";
+      turnId: string;
+      itemId: string;
+      kind: "message" | "command";
+      text: string;
+    },
+  ): Promise<void> {
+    const text = this.#pathRedactor(worker, event.itemId, event.kind).push(event.text);
+    if (!text) return;
+    await this.#emit(worker.sessionKey, {
+      type: event.type,
+      turnId: event.turnId,
+      itemId: event.itemId,
+      text,
+    });
+  }
+
+  async #flushStreamDelta(
+    worker: LiveWorker,
+    itemId: string,
+    kind: "message" | "command",
+    turnId: string,
+  ): Promise<void> {
+    const entry = worker.pathRedactors.get(itemId);
+    if (!entry) return;
+    const leftover = entry.redactor.flush();
+    worker.pathRedactors.delete(itemId);
+    if (!leftover) return;
+    await this.#emit(worker.sessionKey, {
+      type: kind === "message" ? "message.delta" : "command.output.delta",
+      turnId,
+      itemId,
+      text: leftover,
+    });
+  }
+
+  async #flushPathRedactors(worker: LiveWorker): Promise<void> {
+    const turnId = worker.currentTurnId;
+    if (!turnId) {
+      worker.pathRedactors.clear();
+      return;
+    }
+    for (const [itemId, entry] of [...worker.pathRedactors.entries()]) {
+      await this.#flushStreamDelta(worker, itemId, entry.kind, turnId);
+    }
   }
 
   async #requireMeta(projectId: string, sessionId: string): Promise<StoredSessionMeta> {
@@ -1071,14 +1220,14 @@ function permissionReason(toolCall: Record<string, unknown>, human: boolean): st
     toolInput.description,
     toolContentText(toolCall.content),
   );
-  if (description) return clipApprovalReason(description);
+  if (description) return description;
   if (human) return null;
 
   const kind = permissionKind(toolCall);
   if (kind === "command") return "Grok 请求执行一条命令。";
   if (kind === "file_change") return "Grok 请求修改文件。";
   const title = firstString(toolCall.title);
-  return title ? clipApprovalReason(title) : "Grok 请求执行一项操作。";
+  return title ?? "Grok 请求执行一项操作。";
 }
 
 function objectField(value: unknown): Record<string, unknown> {
