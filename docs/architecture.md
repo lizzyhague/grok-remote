@@ -22,7 +22,7 @@ Grok Remote 是单用户自托管的 PWA，用来在手机或电脑上控制主�
 | `src/commands` | 斜杠命令目录与执行 |
 | `src/projects` | 项目白名单解析 |
 | `src/attachments` | 把上传的附件映射成 ACP 输入 |
-| `src/shared-upload` | 共享上传服务的客户端 |
+| `src/shared-upload` | 独立项目 `ai-remote-upload` 的薄客户端 |
 | `src/platform` | 平台差异（可用内存读取等） |
 | `public/` | 前端 PWA：登录、会话列表、编辑发送、流式显示、Markdown、斜杠菜单 |
 

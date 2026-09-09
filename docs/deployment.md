@@ -115,7 +115,10 @@ Node 只监听回环，代理要正确转发 WebSocket 和上传请求。
 
 ## 5. 附件（可选）
 
-附件走独立的 `ai-remote-upload` 服务，必须与本服务同一个 Unix 用户，socket 权限 0600。
+附件走独立项目 [`ai-remote-upload`](https://github.com/lizzyhague/ai-remote-upload)，
+必须与本服务同一个 Unix 用户，socket 权限 0600。安装、启动和多实例部署都按那个仓库
+的说明，不要从 Codex Remote 或本仓库取得服务代码。
+
 `AI_REMOTE_UPLOAD_SOCKET` 要与共享服务一致，默认
 `~/.local/share/ai-remote/upload.sock`。共享服务不存在时纯文本功能照常，只有附件会
-明确失败。
+明确失败。更新或停止 Grok Remote 时，不要捎带更新、停止或重启上传服务。

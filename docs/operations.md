@@ -24,7 +24,8 @@ sudo launchctl kickstart -k system/<你的 label>
 curl --fail --show-error http://127.0.0.1:3000/healthz
 ```
 
-Node 直接跑 TypeScript，没有构建步骤。重启只影响本服务，不涉及入口和其它 Remote。
+Node 直接跑 TypeScript，没有构建步骤。重启只影响本服务，不涉及入口、其它 Remote 或
+独立的 `ai-remote-upload` 服务。更新本服务时不要重启上传服务。
 
 ## 看状态和日志
 
