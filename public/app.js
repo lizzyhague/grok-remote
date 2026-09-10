@@ -1,4 +1,4 @@
-import { renderMarkdown, sanitizeHref } from "./markdown.js?v=13";
+import { renderMarkdown, sanitizeHref } from "./markdown.js";
 
 const TOKEN_KEY = "grok-remote-token";
 const PROJECT_KEY = "grok-remote.project";
@@ -225,9 +225,6 @@ void connect();
 function markReady() {
   window.grokRemoteReady = true;
   window.grokRemoteMarkReady?.();
-  if ("serviceWorker" in navigator) {
-    void navigator.serviceWorker.register("/sw.js");
-  }
 }
 
 async function connect(token) {

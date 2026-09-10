@@ -42,8 +42,10 @@ macOS：看运行用户日志目录下的 `grok-remote.log` 和 `grok-remote.err
 
 `public/` 不是目录服务，是白名单。新增或改名前端文件时，要在
 `src/server/http-server.ts` 的 `STATIC_FILES` 里登记 URL、文件名和 Content-Type，并在
-`http-server.test.ts` 里验证返回 200，否则浏览器只会拿到 404。只改已有文件的内容不用
-重启，新增静态路由或改后端代码必须重启。
+`http-server.test.ts` 里验证返回 200。脚本和样式由服务端按内容生成 `/assets/<哈希>/`
+地址，保存在 `public/.web-assets/`；只改已有文件内容不必再改 HTML 版本号或 Service
+Worker 缓存名。新增静态路由或改后端代码必须重启。部署时保留 `.web-assets/`，不要清空
+仍可能被已打开页面使用的旧快照。
 
 ## 排错
 
@@ -52,3 +54,7 @@ macOS：看运行用户日志目录下的 `grok-remote.log` 和 `grok-remote.err
 
 能打开但登录不了：令牌不对就核对环境文件；WebSocket 被拒就看日志里的 Origin 和
 Host；页面脚本没启动就看 `boot.js`、`app.js` 和依赖资源是不是都返回 200。
+
+联网且部署完整时，普通刷新即可加载当前页面及其对应的脚本、样式，不必关闭已安装的
+PWA。手机可在聊天列表、会话列表顶部或标题栏空白处下拉刷新。页面不会因为
+Service Worker 更新而自动重载。离线只能打开最近一次完整缓存的外壳，会话功能仍需联网。

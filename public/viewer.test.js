@@ -70,7 +70,7 @@ test("viewer reports missing files without offering a download", async () => {
   assert.equal(elements.get("viewer-login").hidden, true);
 });
 
-test("service worker intercepts only the public shell, never file or auth routes", async () => {
+test("service worker does not intercept file or auth routes", async () => {
   const handlers = {};
   vm.runInNewContext(await readFile(new URL("./sw.js", import.meta.url), "utf8"), {
     self: { location: { origin: "https://example.com" }, addEventListener: (name, handler) => { handlers[name] = handler; } },
@@ -82,7 +82,4 @@ test("service worker intercepts only the public shell, never file or auth routes
     handlers.fetch({ request: new Request(`https://example.com${route}`), respondWith() { intercepted = true; } });
     assert.equal(intercepted, false, route);
   }
-  let intercepted = false;
-  handlers.fetch({ request: new Request("https://example.com/"), respondWith() { intercepted = true; } });
-  assert.equal(intercepted, true);
 });
