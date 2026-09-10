@@ -406,6 +406,7 @@ export class RemoteWebSocketServer {
   }
 
   async close(): Promise<void> {
+    this.#services.locks.dispose();
     if (!this.#listening) {
       return;
     }

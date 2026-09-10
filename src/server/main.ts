@@ -74,7 +74,7 @@ export async function main(): Promise<void> {
       sessions,
       turns,
       commands,
-      locks: new ProjectTaskLocks(),
+      locks: new ProjectTaskLocks(turns),
       presence,
       uploads,
     },

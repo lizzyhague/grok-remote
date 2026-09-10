@@ -48,7 +48,7 @@ async function main(): Promise<void> {
       sessions,
       turns,
       commands: new CommandRunner(turns, disk, store),
-      locks: new ProjectTaskLocks(),
+      locks: new ProjectTaskLocks(turns),
       presence,
     },
   });

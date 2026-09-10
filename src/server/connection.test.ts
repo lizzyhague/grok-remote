@@ -290,14 +290,105 @@ test("releases the project lock after a synchronous session command", async () =
   services.presence.dispose();
 });
 
-function fakeTurns(): TurnApi {
+test("stop acknowledgements, failed commands and disconnects do not unlock a running project", async (context) => {
+  const turns = fakeTurns();
+  const services = makeServices(turns);
+  const sockets = [new FakeSocket(), new FakeSocket(), new FakeSocket()];
+  const pages = sockets.map((socket, index) => new BrowserConnection(`page-${index}`, socket, services));
+  const [b, a, reconnectedB] = pages as [BrowserConnection, BrowserConnection, BrowserConnection];
+  context.after(async () => {
+    await Promise.all(pages.map((page) => page.disconnect()));
+    services.locks.dispose();
+    services.presence.dispose();
+  });
+  let nextRequest = 0;
+  async function request(page: BrowserConnection, payload: Record<string, unknown>) {
+    const requestId = `request-${++nextRequest}`;
+    page.receiveText(JSON.stringify({ requestId, ...payload }));
+    await page.whenIdle();
+    return sockets[pages.indexOf(page)]!.messages.find((message) =>
+      (message as { requestId?: string }).requestId === requestId
+    ) as { ok: boolean; error?: { code: string } };
+  }
+  for (const [page, sessionId] of [[b, "b"], [a, "a"]] as const) {
+    await request(page, { type: "session.resume", projectId: "projects/demo", sessionId });
+  }
+  assert.equal((await request(b, { type: "message.send", text: "hello", clientMessageId: "b1" })).ok, true);
+  assert.equal((await request(b, { type: "task.stop" })).ok, true);
+  const tryA = () => request(a, { type: "message.send", text: "hello", clientMessageId: "a1" });
+  assert.equal((await tryA()).error?.code, "project_busy");
+  services.commands.run = async () => { throw new Error("当前会话正在执行任务，请稍后再试。"); };
+  assert.equal((await request(b, { type: "command.run", command: "context" })).ok, false);
+  assert.equal((await tryA()).error?.code, "project_busy");
+  const sendMessage = turns.sendMessage;
+  turns.sendMessage = async () => { throw new Error("message failed"); };
+  assert.equal((await request(b, { type: "message.send", text: "again", clientMessageId: "b2" })).ok, false);
+  turns.sendMessage = sendMessage;
+  assert.equal((await tryA()).error?.code, "project_busy");
+  await b.disconnect();
+  assert.equal((await tryA()).error?.code, "project_busy");
+  await request(reconnectedB, { type: "session.resume", projectId: "projects/demo", sessionId: "b" });
+  assert.equal((await request(reconnectedB, { type: "task.stop" })).ok, true);
+  turns.emit({ type: "turn.status", sessionId: "b", turnId: "old", status: "completed" });
+  assert.equal((await tryA()).error?.code, "project_busy");
+  await reconnectedB.disconnect();
+  turns.emit({ type: "turn.status", sessionId: "b", turnId: "turn-1", status: "interrupted" });
+  assert.equal((await tryA()).ok, true);
+});
+
+test("disconnect during acceptance preserves the reservation and permits control after reconnect", async (context) => {
+  const turns = fakeTurns();
+  const services = makeServices(turns);
+  const socket = new FakeSocket();
+  const original = new BrowserConnection("original", new FakeSocket(), services);
+  const reconnected = new BrowserConnection("reconnected", socket, services);
+  const entered = Promise.withResolvers<void>();
+  const proceed = Promise.withResolvers<void>();
+  const sendMessage = turns.sendMessage;
+  turns.sendMessage = async (input) => {
+    entered.resolve();
+    await proceed.promise;
+    return sendMessage(input);
+  };
+  context.after(async () => {
+    proceed.resolve();
+    await original.whenIdle();
+    await original.disconnect();
+    await reconnected.disconnect();
+    services.locks.dispose();
+    services.presence.dispose();
+  });
+  original.receiveText(JSON.stringify({ type: "session.resume", requestId: "open", projectId: "projects/demo", sessionId: "b" }));
+  original.receiveText(JSON.stringify({ type: "message.send", requestId: "send", text: "hello", clientMessageId: "b1" }));
+  await entered.promise;
+  await original.disconnect();
+  assert.equal(services.locks.acquire("projects/demo", "page-a", "a"), false);
+  reconnected.receiveText(JSON.stringify({ type: "session.resume", requestId: "reopen", projectId: "projects/demo", sessionId: "b" }));
+  await reconnected.whenIdle();
+  proceed.resolve();
+  await original.whenIdle();
+  assert.equal(services.locks.acquire("projects/demo", "page-a", "a"), false);
+  reconnected.receiveText(JSON.stringify({ type: "task.stop", requestId: "stop" }));
+  await reconnected.whenIdle();
+  assert.equal((socket.messages.at(-1) as { ok: boolean }).ok, true);
+  turns.emit({ type: "turn.status", sessionId: "b", turnId: "turn-1", status: "interrupted" });
+  assert.equal(services.locks.acquire("projects/demo", "page-a", "a"), true);
+});
+
+function fakeTurns(): TurnApi & { emit(event: BrowserTurnEvent): void } {
   const listeners = new Set<(event: BrowserTurnEvent) => void>();
   return {
+    emit(event) {
+      for (const listener of listeners) listener(event);
+    },
     onEvent(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
     async sendMessage(input) {
+      for (const listener of listeners) listener({
+        type: "turn.accepted", sessionId: input.sessionId, turnId: "turn-1",
+      });
       return {
         accepted: true,
         turnId: "turn-1",
@@ -366,8 +457,8 @@ function makeServices(turns: TurnApi): BrowserConnectionServices {
       async start() {
         return opened;
       },
-      async open() {
-        return opened;
+      async open(_projectId, sessionId) {
+        return { ...opened, session: { ...opened.session, id: sessionId, pending: false } };
       },
       async archive(_projectId, sessionIds) {
         return { succeeded: sessionIds, failed: [] };
@@ -423,7 +514,7 @@ function makeServices(turns: TurnApi): BrowserConnectionServices {
       disk,
       store,
     ),
-    locks: new ProjectTaskLocks(),
+    locks: new ProjectTaskLocks(turns),
     presence,
   };
 }

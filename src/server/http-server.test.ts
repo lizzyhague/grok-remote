@@ -462,7 +462,7 @@ function emptyServices(): { services: BrowserConnectionServices; turns: TurnRunt
     },
     turns,
     commands: new CommandRunner(turns, disk, store),
-    locks: new ProjectTaskLocks(),
+    locks: new ProjectTaskLocks(turns),
     presence,
     },
   };

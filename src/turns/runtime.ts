@@ -93,6 +93,9 @@ type LiveWorker = {
   client: AcpClient;
   queue: QueuedWork[];
   busy: boolean;
+  enqueuing: number;
+  closing: boolean;
+  stopReason: string | null;
   attached: boolean;
   updates: Promise<void>;
   currentTurnId: string | null;
@@ -180,7 +183,8 @@ export class TurnRuntime {
   isBusy(sessionId: string): boolean {
     const worker = this.#workers.get(sessionId);
     if (!worker) return false;
-    return worker.busy || worker.queue.length > 0 || worker.currentTurnId !== null;
+    return worker.busy || worker.enqueuing > 0 || worker.closing ||
+      worker.queue.length > 0 || worker.currentTurnId !== null;
   }
 
   pendingApprovals(sessionId: string): ApprovalView[] {
@@ -237,36 +241,37 @@ export class TurnRuntime {
         validateGrokAttachments(lease.attachments);
       }
       const worker = await this.#ensureWorker(meta);
-      meta.clientMessageIds[input.clientMessageId] = turnId;
-      meta.clientMessagePayloads[input.clientMessageId] = {
-        text: input.text,
-        attachmentIds: [...input.attachmentIds],
-      };
-      await this.#store.writeMeta(meta);
-      try {
-        await this.#emit(meta.id, {
-          type: "turn.accepted",
+      await this.#enqueue(worker, async () => {
+        meta.clientMessageIds[input.clientMessageId] = turnId;
+        meta.clientMessagePayloads[input.clientMessageId] = {
+          text: input.text,
+          attachmentIds: [...input.attachmentIds],
+        };
+        await this.#store.writeMeta(meta);
+        try {
+          await this.#emit(meta.id, {
+            type: "turn.accepted",
+            turnId,
+            clientMessageId: input.clientMessageId,
+            status: "queued",
+            attachments: lease?.attachments.map(publicAttachment) ?? [],
+          });
+        } catch (error) {
+          delete meta.clientMessageIds[input.clientMessageId];
+          delete meta.clientMessagePayloads[input.clientMessageId];
+          await this.#store.writeMeta(meta).catch(() => {});
+          throw error;
+        }
+        if (lease) this.#attachmentLeases.set(turnId, lease);
+        worker.queue.push({
+          kind: "prompt",
           turnId,
+          text: input.text,
           clientMessageId: input.clientMessageId,
-          status: "queued",
-          attachments: lease?.attachments.map(publicAttachment) ?? [],
+          modeId: null,
+          attachments: lease?.attachments ?? [],
         });
-      } catch (error) {
-        delete meta.clientMessageIds[input.clientMessageId];
-        delete meta.clientMessagePayloads[input.clientMessageId];
-        await this.#store.writeMeta(meta).catch(() => {});
-        throw error;
-      }
-      if (lease) this.#attachmentLeases.set(turnId, lease);
-      worker.queue.push({
-        kind: "prompt",
-        turnId,
-        text: input.text,
-        clientMessageId: input.clientMessageId,
-        modeId: null,
-        attachments: lease?.attachments ?? [],
       });
-      void this.#drain(worker);
       return {
         accepted: true,
         turnId,
@@ -283,21 +288,22 @@ export class TurnRuntime {
     const meta = await this.#store.readMeta(sessionId);
     if (!meta) throw new Error("请先打开一个会话。");
     const turnId = randomUUID();
-    await this.#emit(meta.id, {
-      type: "turn.accepted",
-      turnId,
-      status: "queued",
-    });
     const worker = await this.#ensureWorker(meta);
-    worker.queue.push({
-      kind: "prompt",
-      turnId,
-      text,
-      clientMessageId: null,
-      modeId: null,
-      attachments: [],
+    await this.#enqueue(worker, async () => {
+      await this.#emit(meta.id, {
+        type: "turn.accepted",
+        turnId,
+        status: "queued",
+      });
+      worker.queue.push({
+        kind: "prompt",
+        turnId,
+        text,
+        clientMessageId: null,
+        modeId: null,
+        attachments: [],
+      });
     });
-    void this.#drain(worker);
     return { turnId };
   }
 
@@ -339,21 +345,22 @@ export class TurnRuntime {
     if (prompt) {
       const meta = await this.#requireExistingMeta(sessionId);
       const turnId = randomUUID();
-      await this.#emit(meta.id, {
-        type: "turn.accepted",
-        turnId,
-        status: "queued",
-      });
       const worker = await this.#ensureWorker(meta);
-      worker.queue.push({
-        kind: "prompt",
-        turnId,
-        text: prompt,
-        clientMessageId: null,
-        modeId: "plan",
-        attachments: [],
+      await this.#enqueue(worker, async () => {
+        await this.#emit(meta.id, {
+          type: "turn.accepted",
+          turnId,
+          status: "queued",
+        });
+        worker.queue.push({
+          kind: "prompt",
+          turnId,
+          text: prompt,
+          clientMessageId: null,
+          modeId: "plan",
+          attachments: [],
+        });
       });
-      void this.#drain(worker);
       return { turnId };
     }
     return this.#withAttached(sessionId, async (worker, grokSessionId) => {
@@ -381,14 +388,15 @@ export class TurnRuntime {
   async compact(sessionId: string): Promise<{ turnId: string }> {
     const meta = await this.#requireExistingMeta(sessionId);
     const turnId = randomUUID();
-    await this.#emit(meta.id, {
-      type: "turn.accepted",
-      turnId,
-      status: "queued",
-    });
     const worker = await this.#ensureWorker(meta);
-    worker.queue.push({ kind: "compact", turnId });
-    void this.#drain(worker);
+    await this.#enqueue(worker, async () => {
+      await this.#emit(meta.id, {
+        type: "turn.accepted",
+        turnId,
+        status: "queued",
+      });
+      worker.queue.push({ kind: "compact", turnId });
+    });
     return { turnId };
   }
 
@@ -420,21 +428,16 @@ export class TurnRuntime {
   async stop(sessionId: string): Promise<void> {
     const worker = this.#workers.get(sessionId);
     if (!worker) return;
-    const queued = worker.queue.splice(0);
-    await Promise.all(queued.map((item) => this.#releaseTaskAttachmentLease(item.turnId)));
+    this.#requestStop(worker, "用户停止了本轮。");
+  }
+
+  #requestStop(worker: LiveWorker, reason: string): void {
+    worker.stopReason ??= reason;
     if (worker.pendingApproval) {
       this.#resolveApproval(worker, { outcome: "cancelled" });
     }
     if (worker.grokSessionId) {
       worker.client.sessionCancel(worker.grokSessionId);
-    }
-    if (worker.currentTurnId) {
-      await this.#emit(sessionId, {
-        type: "turn.status",
-        turnId: worker.currentTurnId,
-        status: "interrupted",
-        reason: "用户停止了本轮。",
-      });
     }
   }
 
@@ -485,6 +488,7 @@ export class TurnRuntime {
     for (const worker of this.#workers.values()) {
       const meta = await this.#store.readMeta(worker.sessionKey);
       const always = meta?.permissionMode === "always-approve" || worker.yolo;
+      const needsHuman = worker.pendingApproval?.human === true;
       if (worker.pendingApproval) {
         if (always && !worker.pendingApproval.human) {
           this.#autoAnswer(worker);
@@ -492,20 +496,10 @@ export class TurnRuntime {
         }
         this.#resolveApproval(worker, { outcome: "cancelled" });
       }
-      if (always && !worker.pendingApproval?.human) {
+      if (always && !needsHuman) {
         continue;
       }
-      if (worker.grokSessionId) {
-        worker.client.sessionCancel(worker.grokSessionId);
-      }
-      if (worker.currentTurnId) {
-        await this.#emit(worker.sessionKey, {
-          type: "turn.status",
-          turnId: worker.currentTurnId,
-          status: "interrupted",
-          reason: "没有人处理权限或需要用户输入，本轮已中止。",
-        });
-      }
+      this.#requestStop(worker, "没有人处理权限或需要用户输入，本轮已中止。");
     }
   }
 
@@ -544,7 +538,12 @@ export class TurnRuntime {
     const existing = this.#workers.get(meta.id) ?? (meta.grokSessionId
       ? this.#workers.get(meta.grokSessionId)
       : undefined);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.closing || existing.stopReason) {
+        throw new TurnRuntimeError("session_stopping", "当前会话正在结束任务，请稍后再试。");
+      }
+      return existing;
+    }
 
     const project = await this.#projects.resolve(meta.projectId);
     const memory = await this.#availableMemory();
@@ -569,6 +568,9 @@ export class TurnRuntime {
       client,
       queue: [],
       busy: false,
+      enqueuing: 0,
+      closing: false,
+      stopReason: null,
       attached: false,
       updates: Promise.resolve(),
       currentTurnId: null,
@@ -613,7 +615,7 @@ export class TurnRuntime {
   ): Promise<T> {
     const meta = await this.#requireExistingMeta(sessionId);
     const worker = await this.#ensureWorker(meta);
-    if (worker.busy || worker.queue.length > 0) {
+    if (worker.busy || worker.enqueuing > 0 || worker.queue.length > 0) {
       throw new Error("当前会话正在执行任务，请稍后再试。");
     }
     try {
@@ -621,6 +623,23 @@ export class TurnRuntime {
       return await action(worker, grokSessionId);
     } finally {
       await this.#shutdown(worker);
+    }
+  }
+
+  async #enqueue(worker: LiveWorker, accept: () => Promise<void>): Promise<void> {
+    if (worker.closing || worker.stopReason) {
+      throw new TurnRuntimeError("session_stopping", "当前会话正在结束任务，请稍后再试。");
+    }
+    // 落盘期间保留 Worker，不能让上一轮的清理关掉即将接收新消息的进程。
+    worker.enqueuing += 1;
+    try {
+      await accept();
+    } finally {
+      worker.enqueuing -= 1;
+      if (!worker.busy) {
+        if (worker.queue.length > 0) void this.#drain(worker);
+        else await this.#shutdown(worker);
+      }
     }
   }
 
@@ -636,24 +655,31 @@ export class TurnRuntime {
         worker.assistantSegment = 0;
         worker.tools.clear();
         worker.pathRedactors.clear();
+        let status: "completed" | "interrupted" | "failed" = "failed";
+        let reason: string | null = null;
         await this.#emit(worker.sessionKey, {
           type: "turn.status",
           turnId: item.turnId,
           status: "running",
         });
         try {
+          this.#throwIfStopped(worker);
           const grokSessionId = await this.#attachSession(worker);
+          this.#throwIfStopped(worker);
           await this.#loadAttachmentMappings(worker.sessionKey);
+          this.#throwIfStopped(worker);
           let stop = "end_turn";
           if (item.kind === "prompt") {
             if (item.modeId) {
               await worker.client.sessionSetMode(grokSessionId, item.modeId);
+              this.#throwIfStopped(worker);
             }
             await this.#registerTaskAttachments(
               worker.sessionKey,
               item.turnId,
               item.attachments,
             );
+            this.#throwIfStopped(worker);
             await this.#emit(worker.sessionKey, {
               type: "message.user",
               turnId: item.turnId,
@@ -662,6 +688,7 @@ export class TurnRuntime {
               text: attachmentDisplayText(item.text, item.attachments),
               attachments: item.attachments.map(publicAttachment),
             });
+            this.#throwIfStopped(worker);
             const result = await worker.client.sessionPrompt(
               grokSessionId,
               buildGrokPrompt(item.text, item.attachments),
@@ -672,37 +699,40 @@ export class TurnRuntime {
           }
           await worker.updates;
           await this.#flushPathRedactors(worker);
-          const status = stop === "cancelled" ? "interrupted" : stop === "end_turn" ? "completed" : "failed";
-          await this.#emit(worker.sessionKey, {
-            type: "turn.status",
-            turnId: item.turnId,
-            status,
-            reason: status === "completed" ? null : stop,
-          });
+          status = worker.stopReason || stop === "cancelled"
+            ? "interrupted" : stop === "end_turn" ? "completed" : "failed";
+          reason = worker.stopReason ?? (status === "completed" ? null : stop);
         } catch (error) {
           await this.#flushPathRedactors(worker);
-          await this.#emit(worker.sessionKey, {
-            type: "turn.status",
-            turnId: item.turnId,
-            status: "failed",
-            reason: error instanceof Error ? error.message : "本轮失败。",
-          });
+          status = worker.stopReason ? "interrupted" : "failed";
+          reason = worker.stopReason ?? (error instanceof Error ? error.message : "本轮失败。");
         } finally {
           await this.#releaseTaskAttachmentLease(item.turnId);
+          if (worker.queue.length === 0) await this.#shutdown(worker);
+          await worker.updates;
+          await this.#flushPathRedactors(worker);
           worker.currentTurnId = null;
           worker.currentAssistantItemId = null;
           worker.tools.clear();
           worker.pathRedactors.clear();
         }
+        await this.#emit(worker.sessionKey, {
+          type: "turn.status",
+          turnId: item.turnId,
+          status: worker.stopReason ? "interrupted" : status,
+          reason: worker.stopReason ?? reason,
+        });
       }
     } finally {
       worker.busy = false;
-      if (worker.queue.length === 0) {
-        await this.#shutdown(worker);
-      } else {
+      if (worker.queue.length > 0) {
         void this.#drain(worker);
       }
     }
+  }
+
+  #throwIfStopped(worker: LiveWorker): void {
+    if (worker.stopReason) throw new Error(worker.stopReason);
   }
 
   async #attachSession(worker: LiveWorker): Promise<string> {
@@ -807,6 +837,10 @@ export class TurnRuntime {
   }
 
   async #onPermission(worker: LiveWorker, request: AcpPermissionRequest): Promise<void> {
+    if (worker.stopReason) {
+      worker.client.respondPermission(request.rpcId, { outcome: "cancelled" });
+      return;
+    }
     const human = isHumanRequired(request.toolCall);
     const mappings = this.#peekMappings(worker.sessionKey);
     const rawReason = permissionReason(request.toolCall, human);
@@ -828,16 +862,7 @@ export class TurnRuntime {
     this.#approvals.set(approval.approvalId, { worker, pending });
 
     if (human && !this.#presence.online) {
-      this.#resolveApproval(worker, { outcome: "cancelled" });
-      if (worker.grokSessionId) worker.client.sessionCancel(worker.grokSessionId);
-      if (worker.currentTurnId) {
-        await this.#emit(worker.sessionKey, {
-          type: "turn.status",
-          turnId: worker.currentTurnId,
-          status: "interrupted",
-          reason: "需要用户回答，但当前没有前端在线。",
-        });
-      }
+      this.#requestStop(worker, "需要用户回答，但当前没有前端在线。");
       return;
     }
 
@@ -886,16 +911,12 @@ export class TurnRuntime {
   }
 
   async #shutdown(worker: LiveWorker): Promise<void> {
+    if (worker.closing || worker.enqueuing > 0) return;
     if (worker.queue.length > 0) {
       void this.#drain(worker);
       return;
     }
-    if (this.#workers.get(worker.sessionKey) === worker) {
-      this.#workers.delete(worker.sessionKey);
-    }
-    if (worker.grokSessionId && this.#workers.get(worker.grokSessionId) === worker) {
-      this.#workers.delete(worker.grokSessionId);
-    }
+    worker.closing = true;
     if (worker.pendingApproval) {
       this.#resolveApproval(worker, { outcome: "cancelled" });
     }
@@ -905,6 +926,12 @@ export class TurnRuntime {
     }
     await worker.client.close();
     await terminateAgent(worker.agent);
+    if (this.#workers.get(worker.sessionKey) === worker) {
+      this.#workers.delete(worker.sessionKey);
+    }
+    if (worker.grokSessionId && this.#workers.get(worker.grokSessionId) === worker) {
+      this.#workers.delete(worker.grokSessionId);
+    }
   }
 
   async #sealAssistant(worker: LiveWorker): Promise<void> {

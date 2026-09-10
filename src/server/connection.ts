@@ -158,9 +158,8 @@ export class BrowserConnection {
       this.#services.presence.remove();
       this.#countedPresence = false;
     }
-    if (this.#projectId) {
-      this.#services.locks.release(this.#projectId, this.#id);
-    }
+    // 正在接受消息的请求先完成登记，随后才交还控制权。
+    void this.#queue.finally(() => this.#services.locks.disconnect(this.#id));
   }
 
   async #process(source: string): Promise<void> {
@@ -287,9 +286,7 @@ export class BrowserConnection {
       }
       return result;
     } finally {
-      if (!this.#services.turns.activeTurnId(this.#sessionId ?? "")) {
-        this.#services.locks.release(projectId, this.#id);
-      }
+      this.#services.locks.release(projectId, this.#id);
     }
   }
 
@@ -298,6 +295,7 @@ export class BrowserConnection {
     this.#sessionId = opened.session.id;
     this.#older = opened.older;
     this.#alwaysApprove = opened.alwaysApprove;
+    this.#services.locks.reclaim(projectId, this.#id, opened.session.id);
     const approvals = this.#services.turns.pendingApprovals(opened.session.id);
     return {
       session: opened.session,
@@ -340,22 +338,20 @@ export class BrowserConnection {
       if (result.sessionId !== sessionId) {
         this.#sessionId = result.sessionId;
       }
-      this.#services.locks.setTaskId(projectId, this.#id, result.turnId);
       return result;
-    } catch (error) {
+    } finally {
       this.#services.locks.release(projectId, this.#id);
-      throw error;
     }
   }
 
   async #stopTask(): Promise<unknown> {
     const sessionId = this.#requireSession();
     const projectId = this.#projectId!;
-    if (!this.#services.locks.owns(projectId, this.#id)) {
+    this.#services.locks.reclaim(projectId, this.#id, sessionId);
+    if (!this.#services.locks.owns(projectId, this.#id, sessionId)) {
       throw new BrowserRequestError("project_busy", "当前设备不能停止这个任务。");
     }
     await this.#services.turns.stop(sessionId);
-    this.#services.locks.release(projectId, this.#id);
     return { stopped: true };
   }
 
@@ -382,15 +378,9 @@ export class BrowserConnection {
         request.option,
         request.argument,
       );
-      if (hasTurnId(result)) {
-        this.#services.locks.setTaskId(projectId, this.#id, result.turnId);
-      } else {
-        this.#services.locks.release(projectId, this.#id);
-      }
       return result;
-    } catch (error) {
+    } finally {
       this.#services.locks.release(projectId, this.#id);
-      throw error;
     }
   }
 
@@ -419,12 +409,6 @@ export class BrowserConnection {
     }
     if (event.type === "session.bound" && typeof event.sessionId === "string") {
       this.#sessionId = event.sessionId;
-    }
-    if (event.type === "turn.status") {
-      const status = event.status;
-      if (status === "completed" || status === "interrupted" || status === "failed") {
-        if (this.#projectId) this.#services.locks.release(this.#projectId, this.#id);
-      }
     }
     this.#send({ type: "event", event });
   }
@@ -456,12 +440,6 @@ export class BrowserConnection {
       this.#socket.send(JSON.stringify(message));
     }
   }
-}
-
-function hasTurnId(value: unknown): value is { turnId: string } {
-  return typeof value === "object" &&
-    value !== null &&
-    typeof (value as { turnId?: unknown }).turnId === "string";
 }
 
 export type { ApprovalView };

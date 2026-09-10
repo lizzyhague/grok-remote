@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +11,7 @@ import type { MemoryReading } from "../platform/system-resources.ts";
 import { ProjectCatalog } from "../projects/catalog.ts";
 import { RemoteSessionStore } from "../sessions/store.ts";
 import { PresenceTracker } from "../server/presence.ts";
+import { ProjectTaskLocks } from "../server/project-locks.ts";
 import { AttachmentDisplayIndex } from "../sessions/attachment-index.ts";
 import type { SpawnedAgent } from "../worker/process.ts";
 import { TurnRuntime } from "./runtime.ts";
@@ -316,10 +317,136 @@ test("command approvals ignore login text and use the concise description", asyn
   await fake.exited;
 });
 
+for (const phase of ["session/new", "session/resume", "session/prompt"]) {
+  test(`stopping during ${phase} prevents later work and holds the project until cleanup`, { timeout: 5_000 }, async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), "grok-remote-stop-"));
+    const store = new RemoteSessionStore(path.join(root, "state"));
+    let meta = await store.createPending("projects/demo");
+    if (phase !== "session/new") meta = await store.bindGrokSession(meta.id, "grok-session");
+    const fake = respondingAgent(null, [], [phase, "session/close"]);
+    const presence = new PresenceTracker();
+    const runtime = new TurnRuntime({
+      store,
+      projects: { resolve: async () => ({ id: "projects/demo", name: "demo", rootId: "projects", path: root }) },
+      presence,
+      grokBin: "fake",
+      availableMemory: ampleMemory,
+      spawnAgent: () => fake.agent,
+    });
+    const locks = new ProjectTaskLocks(runtime);
+    context.after(async () => {
+      fake.agent.killGroup("SIGTERM");
+      locks.dispose();
+      await runtime.dispose();
+      presence.dispose();
+      await rm(root, { recursive: true, force: true });
+    });
+    locks.acquire("projects/demo", "page-b", meta.id);
+    const statuses: string[] = [];
+    const finished = new Promise<void>((resolve) => runtime.onEvent((event) => {
+      if (event.type !== "turn.status") return;
+      statuses.push(String(event.status));
+      if (event.status === "interrupted") resolve();
+    }));
+    const input = {
+      projectId: "projects/demo", sessionId: meta.id, text: "explain a project",
+      clientMessageId: "first", attachmentIds: [],
+    };
+    await runtime.sendMessage(input);
+    locks.release("projects/demo", "page-b");
+    await fake.waitForRequest(phase);
+    await runtime.stop(meta.id);
+    assert.deepEqual(statuses, ["running"]);
+    assert.equal(runtime.isBusy(meta.id), true);
+    assert.equal(locks.acquire("projects/demo", "page-a", "a"), false);
+    const duplicate = await runtime.sendMessage(input);
+    assert.equal(duplicate.accepted, true);
+    await assert.rejects(runtime.sendMessage({ ...input, clientMessageId: "second" }), /正在结束任务/u);
+    fake.reply(phase, phase === "session/new" ? { sessionId: "grok-session" } : { stopReason: "end_turn" });
+    await fake.waitForRequest("session/close");
+    assert.deepEqual(statuses, ["running"]);
+    assert.equal(locks.acquire("projects/demo", "page-a", "a"), false);
+    assert.equal(fake.prompts.length, phase === "session/prompt" ? 1 : 0);
+    fake.reply("session/close");
+    await finished;
+    assert.deepEqual(statuses, ["running", "interrupted"]);
+    assert.equal(runtime.isBusy("grok-session"), false);
+    assert.equal(fake.agent.process.exitCode, 0);
+    assert.equal(locks.acquire("projects/demo", "page-a", "a"), true);
+  });
+}
+
+for (const stop of [false, true]) {
+  test(`a message being persisted survives the previous turn ending (stop=${stop})`, { timeout: 5_000 }, async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), "grok-remote-handoff-"));
+    const store = new RemoteSessionStore(path.join(root, "state"));
+    const pending = await store.createPending("projects/demo");
+    const meta = await store.bindGrokSession(pending.id, "grok-session");
+    const fake = respondingAgent(null, [], ["session/prompt"]);
+    const presence = new PresenceTracker();
+    const runtime = new TurnRuntime({
+      store,
+      projects: { resolve: async () => ({ id: "projects/demo", name: "demo", rootId: "projects", path: root }) },
+      presence, grokBin: "fake", availableMemory: ampleMemory,
+      spawnAgent: () => fake.agent,
+    });
+    const allowWrite = Promise.withResolvers<void>();
+    const writeStarted = Promise.withResolvers<void>();
+    context.after(async () => {
+      allowWrite.resolve();
+      fake.agent.killGroup("SIGTERM");
+      await runtime.dispose();
+      presence.dispose();
+      await rm(root, { recursive: true, force: true });
+    });
+    const statuses: string[] = [];
+    const firstDone = Promise.withResolvers<void>();
+    const secondDone = Promise.withResolvers<void>();
+    runtime.onEvent((event) => {
+      if (event.type !== "turn.status" || !["completed", "interrupted", "failed"].includes(String(event.status))) return;
+      statuses.push(String(event.status));
+      if (statuses.length === 1) firstDone.resolve();
+      else secondDone.resolve();
+    });
+    const input = { projectId: "projects/demo", sessionId: meta.id, text: "first", clientMessageId: "first", attachmentIds: [] };
+    await runtime.sendMessage(input);
+    await fake.waitForRequest("session/prompt");
+    const writeMeta = store.writeMeta.bind(store);
+    store.writeMeta = async (value) => {
+      if (value.clientMessageIds.second) {
+        writeStarted.resolve();
+        await allowWrite.promise;
+      }
+      await writeMeta(value);
+    };
+    const second = runtime.sendMessage({ ...input, text: "second", clientMessageId: "second" });
+    await writeStarted.promise;
+    if (stop) await runtime.stop(meta.id);
+    fake.reply("session/prompt", { stopReason: "end_turn" });
+    await firstDone.promise;
+    assert.equal(fake.methods.includes("session/close"), false);
+    assert.equal(runtime.isBusy(meta.id), true);
+    allowWrite.resolve();
+    await second;
+    if (!stop) {
+      await fake.waitForRequest("session/prompt", 2);
+      fake.reply("session/prompt", { stopReason: "end_turn" });
+    }
+    await secondDone.promise;
+    assert.deepEqual(statuses, stop ? ["interrupted", "interrupted"] : ["completed", "completed"]);
+    assert.equal(fake.prompts.length, stop ? 1 : 2);
+    assert.equal(runtime.isBusy(meta.id), false);
+  });
+}
+
 function respondingAgent(
   permissionToolCall: Record<string, unknown> | null = null,
   updates: Array<Record<string, unknown>> = [],
-): { agent: SpawnedAgent; exited: Promise<void>; prompts: unknown[] } {
+  heldMethods: string[] = [],
+) {
+  const requests = new EventEmitter();
+  const methods: string[] = [];
+  const held = new Map<string, number[]>();
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const stderr = new PassThrough();
@@ -379,8 +506,16 @@ function respondingAgent(
         }
         continue;
       }
+      methods.push(request.method);
+      requests.emit(request.method);
       if (request.id === undefined) continue;
       if (request.method === "session/prompt") prompts.push(request.params);
+      if (heldMethods.includes(request.method)) {
+        const ids = held.get(request.method) ?? [];
+        ids.push(request.id);
+        held.set(request.method, ids);
+        continue;
+      }
       if (request.method === "session/prompt") {
         for (const update of updates) {
           stdout.write(`${JSON.stringify({
@@ -424,7 +559,17 @@ function respondingAgent(
     process: proc as unknown as ChildProcessWithoutNullStreams,
     killGroup: () => exit(),
   };
-  return { agent, exited, prompts };
+  return {
+    agent, exited, prompts, methods,
+    async waitForRequest(method: string, count = 1) {
+      while (methods.filter((called) => called === method).length < count) await once(requests, method);
+    },
+    reply(method: string, result: unknown = {}) {
+      const id = held.get(method)?.shift();
+      assert.notEqual(id, undefined, `No pending ${method}`);
+      stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
+    },
+  };
 }
 
 async function ampleMemory(): Promise<MemoryReading> {
