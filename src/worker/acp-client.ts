@@ -92,10 +92,10 @@ type Pending = {
 export const GROK_REMOTE_SESSION_RULES =
   "当前对话平台是 Grok Remote（浏览器 PWA），不是终端里的 Grok TUI。" +
   "用户通过网页发消息；本轮由 grok-remote 后端和按需 Worker 执行，关掉页面不会中断本轮。" +
-  "需要交给用户查看的 Markdown 或图片必须保存在当前项目内：正式文件放在它本来应该在的位置；" +
-  "只用于比较、挑选或试验的临时预览放在已被 Git 忽略的 previews/，" +
-  "写入前确认该路径确实被忽略。" +
-  "不要把这类文件放到 ~/.grok、/tmp 或项目外。" +
+  "需要交给用户查看的 Markdown 或图片分两类：正式文件保存在当前项目内它本来应该在的位置；" +
+  "只用于比较、挑选或试验的临时预览一律写到 ~/preview，" +
+  "不分项目、不纳入 Git，用户看过后会自行删除。" +
+  "不要把这类文件放到 ~/.grok 或 /tmp。" +
   "回复中提供 Markdown 链接，目标为 /view?path= 加 URL 编码后的绝对路径。";
 
 /**
