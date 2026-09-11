@@ -79,12 +79,10 @@ HTTP 文件请求、附件上传和 WebSocket 握手统一检查该 cookie；Web
 
 ```text
 https://grok.example.com/view?path=%2Fsrv%2Fprojects%2Fdemo%2FREADME.md
-https://grok.example.com/view?path=demo%2Fdiagram.svg
 ```
 
-`path` 是 URL 编码后的主机绝对路径，或相对于 `projects.json` 中 `roots` 的路径。
-有多个根时，相对路径按配置顺序查找；为避免同名文件歧义，建议使用绝对路径。
-只允许访问这些根目录内的 `.md`、`.svg`、`.png`、`.jpg`、`.jpeg`、`.gif`、
+`path` 必须是 URL 编码后的主机绝对路径，相对路径返回 404。
+只允许访问配置允许查看的根目录内的 `.md`、`.svg`、`.png`、`.jpg`、`.jpeg`、`.gif`、
 `.webp`、`.avif`、`.bmp`、`.ico` 文件（后缀不区分大小写）。路径越界、软链接逃逸、
 目录和其它后缀均返回 404，没有下载兜底或目录浏览。
 

@@ -17,6 +17,7 @@ import { resolveSharedUploadSocket } from "../shared-upload/paths.ts";
 import { PresenceTracker } from "./presence.ts";
 import { ProjectTaskLocks } from "./project-locks.ts";
 import { RemoteWebSocketServer } from "./http-server.ts";
+import { buildViewableRoots, ensurePreviewRoot } from "./viewable-roots.ts";
 import { TurnRuntime } from "../turns/runtime.ts";
 import {
   DEFAULT_MAX_WORKERS,
@@ -37,6 +38,7 @@ export async function main(): Promise<void> {
   await assertGrokBin(grokBin);
 
   const projects = await ProjectCatalog.fromConfigFile(configPath);
+  const previewRoot = await ensurePreviewRoot();
   const disk = new GrokSessionDisk(resolveGrokHome());
   const stateDir = resolveStateDir();
   const store = new RemoteSessionStore(stateDir);
@@ -67,7 +69,7 @@ export async function main(): Promise<void> {
   let cleanupTimer: NodeJS.Timeout | null = null;
   const remote = new RemoteWebSocketServer({
     token,
-    fileRoots: projects.fileRoots(),
+    fileRoots: buildViewableRoots(projects.fileRoots(), [previewRoot]),
     allowedOrigins: readAllowedOrigins(process.env.GROK_REMOTE_ALLOWED_ORIGINS),
     services: {
       projects,

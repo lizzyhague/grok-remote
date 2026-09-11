@@ -15,8 +15,7 @@ const TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
-// Compare actual directory identities, not lowercased strings: macOS can have
-// both case-sensitive and case-insensitive volumes. Linux uses this same path.
+// 比较真实目录身份，兼容 macOS 上同时存在的大小写敏感与不敏感卷。
 async function insideRoot(root: string, candidate: string): Promise<boolean> {
   const rootInfo = await stat(root);
   let parent = path.dirname(candidate);
@@ -29,32 +28,47 @@ async function insideRoot(root: string, candidate: string): Promise<boolean> {
   }
 }
 
+async function insideRootSafe(root: string, candidate: string): Promise<boolean> {
+  try {
+    return await insideRoot(root, candidate);
+  } catch {
+    return false;
+  }
+}
+
+async function insideAnyRoot(roots: readonly string[], candidate: string): Promise<boolean> {
+  for (const root of roots) {
+    if (await insideRootSafe(root, candidate)) return true;
+  }
+  return false;
+}
+
 export async function openViewableFile(roots: readonly string[], input: string): Promise<{
   handle: FileHandle;
   size: number;
   contentType: string;
 } | null> {
   const contentType = TYPES[path.extname(input).toLowerCase()];
-  if (!input || input.includes("\0") || !contentType) return null;
-  for (const root of roots) {
-    let handle: FileHandle | undefined;
-    try {
-      const resolved = await realpath(path.resolve(root, input));
-      // A whitelisted symlink name must not expose a disallowed target suffix.
-      if (TYPES[path.extname(resolved).toLowerCase()] !== contentType ||
-          !await insideRoot(root, resolved)) continue;
-      handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-      const info = await handle.stat();
-      const current = await stat(resolved);
-      if (!info.isFile() || info.dev !== current.dev || info.ino !== current.ino ||
-          !await insideRoot(root, await realpath(resolved))) {
-        await handle.close();
-        continue;
-      }
-      return { handle, size: info.size, contentType };
-    } catch {
-      await handle?.close();
+  if (!input || input.includes("\0") || !path.isAbsolute(input) || !contentType) return null;
+  let handle: FileHandle | undefined;
+  try {
+    const resolved = await realpath(input);
+    const allowed = await insideAnyRoot(roots, resolved);
+    // 白名单后缀的软链接也不能借目标文件的其他后缀绕过类型限制。
+    if (!allowed || TYPES[path.extname(resolved).toLowerCase()] !== contentType) return null;
+    handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const info = await handle.stat();
+    const currentResolved = await realpath(resolved);
+    const current = await stat(currentResolved);
+    const stillAllowed = await insideAnyRoot(roots, currentResolved);
+    if (!info.isFile() || info.dev !== current.dev || info.ino !== current.ino ||
+        !stillAllowed) {
+      await handle.close();
+      return null;
     }
+    return { handle, size: info.size, contentType };
+  } catch {
+    await handle?.close();
+    return null;
   }
-  return null;
 }

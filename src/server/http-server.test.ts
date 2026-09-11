@@ -197,7 +197,8 @@ test("HTTP login, protected routes and WebSocket use the same persistent cookie"
   });
   let address = await server.listen(0);
   let origin = `http://${address.host}:${address.port}`;
-  for (const route of ["/auth/session", "/raw?path=note.md", "/attachments/upload"]) {
+  const protectedRaw = `/raw?${new URLSearchParams({ path: path.join(tmpdir(), "note.md") })}`;
+  for (const route of ["/auth/session", protectedRaw, "/attachments/upload"]) {
     const response = await fetch(origin + route);
     assert.equal(response.status, 401);
     assert.equal(response.headers.get("cache-control"), "no-store");
@@ -279,12 +280,19 @@ test("raw serves only caged markdown and images with sandbox headers; view asset
     assert.equal(await head.text(), "");
     assert.equal(head.headers.get("content-length"), response.headers.get("content-length"));
   }
-  for (const file of ["../outside.md", "escape.md", "config.json", "missing.png"]) {
+  for (const file of [
+    path.join(temp, "outside.md"),
+    path.join(root, "escape.md"),
+    path.join(root, "config.json"),
+    path.join(root, "missing.png"),
+  ]) {
     const response = await fetch(`${origin}/raw?${new URLSearchParams({ path: file })}`, { headers: { cookie } });
     assert.equal(response.status, 404, file);
   }
+  assert.equal((await fetch(`${origin}/raw?path=note.md`, { headers: { cookie } })).status, 404);
   assert.equal((await fetch(`${origin}/raw?path=a.md&path=b.md`, { headers: { cookie } })).status, 404);
-  assert.equal((await fetch(`${origin}/raw?path=image.svg`, { method: "POST", headers: { cookie } })).status, 405);
+  const imageUrl = `${origin}/raw?${new URLSearchParams({ path: path.join(root, "image.svg") })}`;
+  assert.equal((await fetch(imageUrl, { method: "POST", headers: { cookie } })).status, 405);
   for (const asset of ["/view?path=note.md", "/viewer.js?v=1", "/viewer.css?v=1"]) {
     const response = await fetch(origin + asset);
     assert.equal(response.status, 200);
