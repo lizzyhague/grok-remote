@@ -15,7 +15,7 @@ function deferred() {
 // Only browser APIs, server responses and unrelated UI rendering are substituted.
 function harness() {
   const sockets = [], requests = [], uploads = [], frames = new Map(), storage = new Map();
-  const counters = { cleared: 0, histories: 0 };
+  const counters = { cleared: 0, histories: 0, noticeSessions: [] };
   const timeline = {
     scrollTop: 420, scrollHeight: 2000, clientHeight: 500, scrolls: [],
     scrollTo(options) { this.scrolls.push(options); this.scrollTop = options.top; },
@@ -26,6 +26,7 @@ function harness() {
     window: { clearTimeout() {} },
     location: { protocol: "https:", host: "example.test", search: "" },
     MAX_MESSAGE_ATTACHMENTS: 100, ATTACHMENT_DRAFTS_KEY: "drafts",
+    TEMPORARY_ERROR: { lifetime: "temporary", tone: "error" },
     state: {
       connectAttempt: 0, socket: null, connectionReady: false, replayingEvents: false,
       currentSessionId: "session-1", projectId: "project-1", lastSeq: 7,
@@ -66,7 +67,8 @@ function harness() {
     rejectPending() {}, handleSocketMessage() {}, scheduleReconnect() {},
     updateControls() {}, renderAttachmentList() {}, updateConversationTitle() {},
     renderSessionList() {}, upsertSession() {}, addApproval() {},
-    hideNotice() {}, syncApprovalNotice() {}, showNotice() {}, showLogin() {},
+    clearCurrentSessionNotice(sessionId) { counters.noticeSessions.push(sessionId); },
+    syncApprovalNotice() {}, showNotice() {}, showLogin() {},
     showEmpty() {}, clearTimeline() { counters.cleared++; timeline.scrollTop = 0; },
     renderHistory() { counters.histories++; }, retryOutboxForCurrentSession: async () => {},
     errorMessage: (error) => error.message,
@@ -198,6 +200,19 @@ test("a stale session response cannot replace a newer connection's session", asy
   assert.equal(h.context.state.currentSessionId, "session-2");
   assert.equal(h.context.state.connectionReady, false);
   assert.equal(h.counters.histories, 0);
+});
+
+test("opening another session clears only the previous session notice context", () => {
+  const h = harness();
+  h.context.applyOpenedSession({
+    session: { id: "session-2" },
+    tasks: [],
+    pendingApprovals: [],
+    lastSeq: 0,
+    resumeAfterSeq: 0,
+  });
+  assert.deepEqual(h.counters.noticeSessions, ["session-1"]);
+  assert.equal(h.context.state.currentSessionId, "session-2");
 });
 
 for (const atBottom of [false, true]) {

@@ -48,7 +48,7 @@ test("serves health and authenticated WebSocket only on loopback", async () => {
     assert.match(worker.headers.get("cache-control") ?? "", /no-cache/u);
     assert.equal(worker.headers.get("service-worker-allowed"), "/");
 
-    for (const asset of ["/boot.js", "/markdown.js", "/slash-menu.js"]) {
+    for (const asset of ["/boot.js", "/markdown.js", "/notice.js", "/slash-menu.js"]) {
       const response = await fetch(`http://${address.host}:${address.port}${asset}`);
       assert.equal(response.status, 200, `${asset} should be served`);
     }
