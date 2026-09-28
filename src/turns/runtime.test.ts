@@ -260,11 +260,11 @@ test("command approvals ignore login text and use the concise description", asyn
   const store = new RemoteSessionStore(path.join(root, "state"));
   const presence = new PresenceTracker();
   const fake = respondingAgent({
-    title: "Execute `ssh node1 'echo LAST LOGINS; last -n 15'`",
+    title: "Execute `ssh example-host 'echo LAST LOGINS; last -n 15'`",
     kind: "execute",
     rawInput: {
       variant: "Bash",
-      command: "ssh node1 'echo LAST LOGINS; last -n 15'",
+      command: "ssh example-host 'echo LAST LOGINS; last -n 15'",
       description: "Find clone location and recent logins",
     },
     _meta: {
@@ -302,7 +302,7 @@ test("command approvals ignore login text and use the concise description", asyn
   await runtime.sendMessage({
     projectId: "projects/demo",
     sessionId: pending.id,
-    text: "inspect node1",
+    text: "inspect example-host",
     clientMessageId: "client-approval",
     attachmentIds: [],
   });
