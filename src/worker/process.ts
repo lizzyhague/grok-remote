@@ -15,12 +15,13 @@ export type SpawnedAgent = {
 export type SpawnAgent = (options: {
   grokBin: string;
   cwd: string;
+  environment?: NodeJS.ProcessEnv;
 }) => SpawnedAgent;
 
 export const spawnGrokAgent: SpawnAgent = (options) => {
   const child = spawn(options.grokBin, ["agent", "--no-leader", "stdio"], {
     cwd: options.cwd,
-    env: process.env,
+    env: withoutRemoteAccessToken(options.environment ?? process.env),
     stdio: ["pipe", "pipe", "pipe"],
     detached: true,
     windowsHide: true,
@@ -46,6 +47,12 @@ export const spawnGrokAgent: SpawnAgent = (options) => {
     },
   };
 };
+
+function withoutRemoteAccessToken(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const childEnvironment = { ...environment };
+  delete childEnvironment.GROK_REMOTE_TOKEN;
+  return childEnvironment;
+}
 
 export function assertWorkerCapacity(options: {
   activeWorkers: number;
