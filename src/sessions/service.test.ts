@@ -162,6 +162,58 @@ test("permanently deletes trash entries after thirty days", async (context) => {
   assert.equal(await disk.read("session-old"), null);
 });
 
+test("rechecks retention after an expired session is restored and trashed again", async (context) => {
+  const { catalog, disk, store, layout, projectId, group, projectPath, root } =
+    await createFixture(context);
+  await writeSummary(path.join(group, "session-blocking"), "session-blocking", projectPath, "Block");
+  for (const sessionId of ["session-blocking", "session-keep"]) {
+    await layout.moveToTrash({
+      sessionId,
+      projectId,
+      deletedAt: 100,
+      origin: "active",
+    });
+  }
+  const firstDeleteStarted = Promise.withResolvers<void>();
+  const releaseFirstDelete = Promise.withResolvers<void>();
+  const attachmentIndex = await AttachmentDisplayIndex.open(path.join(root, "attachments"));
+  const removeAttachmentIndex = attachmentIndex.remove.bind(attachmentIndex);
+  attachmentIndex.remove = async (sessionId) => {
+    if (sessionId === "session-blocking") {
+      firstDeleteStarted.resolve();
+      await releaseFirstDelete.promise;
+    }
+    await removeAttachmentIndex(sessionId);
+  };
+  let now = 100 + TRASH_RETENTION_SECONDS;
+  const service = new SessionService(catalog, disk, store, layout, {
+    now: () => now,
+    attachmentIndex,
+  });
+
+  const cleanup = service.purgeExpired();
+  await firstDeleteStarted.promise;
+  const restore = service.restoreTrash(projectId, ["session-keep"]);
+  now += 1;
+  const retrash = service.moveToTrash(projectId, ["session-keep"], "active");
+  releaseFirstDelete.resolve();
+  assert.deepEqual(await restore, { succeeded: ["session-keep"], failed: [] });
+  assert.deepEqual(await retrash, {
+    succeeded: ["session-keep"],
+    failed: [],
+  });
+
+  assert.deepEqual(await cleanup, { deleted: 1, failed: [] });
+  assert.equal(layout.isTrashed("session-blocking"), false);
+  assert.deepEqual(layout.trashEntry("session-keep"), {
+    sessionId: "session-keep",
+    projectId,
+    deletedAt: now,
+    origin: "active",
+  });
+  assert.notEqual(await disk.read("session-keep"), null);
+});
+
 test("does not archive a session while its task is active", async (context) => {
   const { catalog, disk, store, layout, projectId } = await createFixture(context);
   const service = new SessionService(catalog, disk, store, layout, {

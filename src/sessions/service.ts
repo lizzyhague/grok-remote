@@ -313,12 +313,17 @@ export class SessionService {
     });
   }
 
-  purgeExpired(): Promise<TrashCleanupResult> {
-    return this.#serializeMutation(async () => {
-      const threshold = this.#now() - TRASH_RETENTION_SECONDS;
-      const expired = this.#layout.listTrash().filter((entry) => entry.deletedAt <= threshold);
-      const result: TrashCleanupResult = { deleted: 0, failed: [] };
-      for (const entry of expired) {
+  async purgeExpired(): Promise<TrashCleanupResult> {
+    const threshold = this.#now() - TRASH_RETENTION_SECONDS;
+    const expiredIds = this.#layout.listTrash()
+      .filter((entry) => entry.deletedAt <= threshold)
+      .map((entry) => entry.sessionId);
+    const result: TrashCleanupResult = { deleted: 0, failed: [] };
+    for (const sessionId of expiredIds) {
+      await this.#serializeMutation(async () => {
+        const entry = this.#layout.trashEntry(sessionId);
+        const currentThreshold = this.#now() - TRASH_RETENTION_SECONDS;
+        if (!entry || entry.deletedAt > currentThreshold) return;
         try {
           await this.#permanentlyDelete(entry.sessionId);
           await this.#layout.removeTrash(entry.sessionId);
@@ -334,9 +339,9 @@ export class SessionService {
             message: error instanceof Error ? error.message : "删除失败。",
           });
         }
-      }
-      return result;
-    });
+      });
+    }
+    return result;
   }
 
   async discardUnboundPending(): Promise<number> {
