@@ -2,7 +2,7 @@
   "name": "grok-remote",
   "version": "0.1.0",
   "description": "Single-user web interface for controlling Grok Build CLI on a remote host.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "private": true,
   "type": "module",
   "engines": {
