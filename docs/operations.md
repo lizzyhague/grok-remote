@@ -2,15 +2,25 @@
 
 ## 更新
 
-在仓库目录里以代码所有者身份更新并验证，通过之后再重启：
+后端和前端作为一个版本切换：服务在开始监听前读定整套前端，之后工作树里的改动不会
+交给正在运行的进程，重启才整体换新。所以可以在运行中的工作树里拉取和验证，但只有
+验证通过才重启。在仓库目录里以代码所有者身份更新并验证：
 
 ```bash
+previous=$(git rev-parse HEAD)
 git pull --ff-only
 npm ci --include=dev
 npm run typecheck && npm test
 ```
 
-Linux：
+验证失败时不要重启，先把工作树退回原版本，免得进程被意外拉起时装上半升级的代码：
+
+```bash
+git reset --hard "$previous"
+npm ci --include=dev
+```
+
+验证通过后重启。Linux：
 
 ```bash
 sudo systemctl restart grok-remote.service
@@ -44,8 +54,11 @@ macOS：看运行用户日志目录下的 `grok-remote.log` 和 `grok-remote.err
 `src/server/http-server.ts` 的 `STATIC_FILES` 里登记 URL、文件名和 Content-Type，并在
 `http-server.test.ts` 里验证返回 200。脚本和样式由服务端按内容生成 `/assets/<哈希>/`
 地址，保存在 `public/.web-assets/`；只改已有文件内容不必再改 HTML 版本号或 Service
-Worker 缓存名。新增静态路由或改后端代码必须重启。部署时保留 `.web-assets/`，不要清空
-仍可能被已打开页面使用的旧快照。
+Worker 缓存名。任何前端或后端改动都要重启才生效。
+
+`.web-assets/` 由服务自己管理：每次启动保留当前版本和最近两次启动用过的旧版本，更早的
+自动删除，已打开的旧页面在接下来两次发布内仍能取到资源。部署时不要手工清空这个目录。
+浏览器的离线缓存同样只保留当前离线页和上一套离线页的资源。
 
 ## 排错
 
