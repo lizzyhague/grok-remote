@@ -37,12 +37,17 @@ const elements = {
   selectAllSessionsButton: byId("select-all-sessions-button"),
   sessionList: byId("session-list"),
   loadMoreSessionsButton: byId("load-more-sessions-button"),
-  sessionDestinations: byId("session-destinations"),
   archivedSessionsButton: byId("archived-sessions-button"),
   trashSessionsButton: byId("trash-sessions-button"),
-  bulkSessionActions: byId("bulk-session-actions"),
   bulkPrimaryButton: byId("bulk-primary-button"),
   bulkTrashButton: byId("bulk-trash-button"),
+  bulkArchiveIcon: byId("bulk-archive-icon"),
+  bulkUnarchiveIcon: byId("bulk-unarchive-icon"),
+  bulkRestoreIcon: byId("bulk-restore-icon"),
+  bulkDeleteIcon: byId("bulk-delete-icon"),
+  bulkDeletePermanentlyIcon: byId("bulk-delete-permanently-icon"),
+  selectAllIcon: byId("select-all-icon"),
+  selectNoneIcon: byId("select-none-icon"),
   appAlertDialog: byId("app-alert-dialog"),
   appAlertTitle: byId("app-alert-title"),
   appAlertMessage: byId("app-alert-message"),
@@ -615,9 +620,10 @@ function setSessionView(view, load = true) {
     : view === "archived"
     ? "已归档"
     : "回收站";
-  elements.sessionViewBackButton.hidden = view === "active";
-  elements.archivedSessionsButton.dataset.active = String(view === "archived");
-  elements.trashSessionsButton.dataset.active = String(view === "trash");
+  const activeView = view === "active";
+  elements.sessionViewBackButton.hidden = activeView;
+  elements.archivedSessionsButton.hidden = !activeView;
+  elements.trashSessionsButton.hidden = !activeView;
   renderSessionList();
   if (load) void loadSessions();
 }
@@ -627,8 +633,6 @@ function setSelectionMode(enabled, render = true) {
   state.selectedSessions.clear();
   elements.sessionViewTitle.parentElement.hidden = enabled;
   elements.selectionHeading.hidden = !enabled;
-  elements.sessionDestinations.hidden = enabled;
-  elements.bulkSessionActions.hidden = !enabled;
   if (render) renderSessionList();
   updateSelectionControls();
 }
@@ -956,12 +960,28 @@ function updateSelectionControls() {
   const allSelected = cappedIds.length > 0 &&
     cappedIds.every((id) => state.selectedSessions.has(id));
   elements.selectionCount.textContent = `已选择 ${count} 项`;
-  elements.selectAllSessionsButton.textContent = allSelected ? "取消全选" : "全选";
+  const selectAllLabel = allSelected ? "取消全选" : "全选";
+  elements.selectAllSessionsButton.setAttribute("aria-label", selectAllLabel);
+  elements.selectAllSessionsButton.title = selectAllLabel;
+  elements.selectAllIcon.hidden = allSelected;
+  elements.selectNoneIcon.hidden = !allSelected;
   elements.bulkPrimaryButton.disabled = count === 0 || state.sessionLoading;
   elements.bulkTrashButton.disabled = count === 0 || state.sessionLoading;
-  elements.bulkPrimaryButton.textContent = state.sessionView === "active" ? "归档" : "恢复";
-  elements.bulkTrashButton.textContent = state.sessionView === "trash" ? "永久删除" : "删除";
-  delete elements.bulkSessionActions.dataset.single;
+  const primaryLabel = state.sessionView === "active"
+    ? "归档"
+    : state.sessionView === "archived"
+    ? "取消归档"
+    : "恢复";
+  const dangerLabel = state.sessionView === "trash" ? "永久删除" : "删除";
+  elements.bulkPrimaryButton.setAttribute("aria-label", primaryLabel);
+  elements.bulkPrimaryButton.title = primaryLabel;
+  elements.bulkTrashButton.setAttribute("aria-label", dangerLabel);
+  elements.bulkTrashButton.title = dangerLabel;
+  elements.bulkArchiveIcon.hidden = state.sessionView !== "active";
+  elements.bulkUnarchiveIcon.hidden = state.sessionView !== "archived";
+  elements.bulkRestoreIcon.hidden = state.sessionView !== "trash";
+  elements.bulkDeleteIcon.hidden = state.sessionView === "trash";
+  elements.bulkDeletePermanentlyIcon.hidden = state.sessionView !== "trash";
 }
 
 async function runBulkPrimaryAction() {
@@ -2246,7 +2266,9 @@ function updateConversationTitle() {
   elements.currentSessionTitle.textContent = privateTitle
     ? "Grok Remote"
     : state.sessionTitle || "Grok Remote";
-  elements.collapseSidebarButton.textContent = isMobileNavigation() ? "关闭" : "收起";
+  const collapseLabel = isMobileNavigation() ? "关闭会话列表" : "收起会话列表";
+  elements.collapseSidebarButton.setAttribute("aria-label", collapseLabel);
+  elements.collapseSidebarButton.title = collapseLabel;
 }
 
 function syncSidebarState() {
