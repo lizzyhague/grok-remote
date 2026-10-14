@@ -17,6 +17,18 @@ const TEMPORARY_ERROR = Object.freeze({ lifetime: "temporary", tone: "error" });
 /** 输入框失焦后稍等再点亮 rewind / always-approve，避免同一下既失焦又点到确认。 */
 const COMPOSER_CONFIRM_UNLOCK_MS = 300;
 
+function measureScrollbarWidth() {
+  const probe = document.createElement("div");
+  probe.className = "scrollbar-measure";
+  probe.style.cssText = "position:absolute;width:100px;height:100px;overflow:scroll;visibility:hidden;";
+  document.body.append(probe);
+  const width = probe.offsetWidth - probe.clientWidth;
+  probe.remove();
+  return width;
+}
+
+document.documentElement.style.setProperty("--scrollbar-width", `${measureScrollbarWidth()}px`);
+
 const elements = {
   loginView: byId("login-view"),
   appView: byId("app-view"),
@@ -2253,9 +2265,12 @@ function updateControls() {
     : state.alwaysApprove
     ? "关闭 always-approve，恢复手动审批"
     : "为当前会话打开 always-approve";
-  elements.taskButton.textContent = state.taskRunning ? "停止" : "发送";
+  const taskLabel = state.taskRunning ? "停止" : "发送";
+  elements.taskButton.dataset.action = state.taskRunning ? "stop" : "send";
+  elements.taskButton.setAttribute("aria-label", taskLabel);
+  elements.taskButton.title = taskLabel;
   elements.taskButton.classList.toggle("primary", !state.taskRunning);
-  elements.taskButton.classList.toggle("danger", state.taskRunning);
+  elements.taskButton.classList.toggle("danger", false);
   elements.taskButton.disabled = state.taskRunning
     ? !connected || !hasSession
     : !connected || !hasSession || state.busy || uploading || (!hasText && !hasAttachments);

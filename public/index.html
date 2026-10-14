@@ -139,43 +139,48 @@
           <div id="slash-menu" class="slash-menu" role="listbox" hidden></div>
           <input id="attachment-input" class="visually-hidden" type="file" multiple tabindex="-1">
           <div id="attachment-list" class="attachment-list" aria-live="polite" hidden></div>
-          <textarea
-            id="message-input"
-            rows="1"
-            maxlength="524288"
-            placeholder="先选择或新建会话"
-            aria-label="消息"
-            disabled
-          ></textarea>
-          <div class="composer-actions">
-            <span class="composer-hint">电脑可按 Ctrl / ⌘ + Enter 发送</span>
-            <div class="composer-action-scroll" aria-label="快捷操作">
-              <button
-                id="attachment-button"
-                class="quiet composer-shortcut"
-                type="button"
-                aria-label="选择附件"
-                title="选择一个或多个附件"
-                disabled
-              >附件</button>
-              <button
-                id="command-menu-button"
-                class="quiet composer-shortcut command-menu-button"
-                type="button"
-                aria-label="打开 Grok 命令"
-                title="打开 Grok 命令"
-                disabled
-              >/</button>
-              <button id="rewind-shortcut" class="quiet composer-shortcut" type="button" disabled>rewind</button>
-              <button
-                id="always-approve-shortcut"
-                class="quiet composer-shortcut always-approve-shortcut"
-                type="button"
-                aria-pressed="false"
-                disabled
-              >always-approve</button>
+          <div class="composer-shell">
+            <textarea
+              id="message-input"
+              rows="1"
+              maxlength="524288"
+              placeholder="先选择或新建会话"
+              aria-label="消息"
+              disabled
+            ></textarea>
+            <div class="composer-actions">
+              <div class="composer-action-scroll" aria-label="快捷操作">
+                <button
+                  id="attachment-button"
+                  class="quiet composer-shortcut"
+                  type="button"
+                  aria-label="选择附件"
+                  title="选择一个或多个附件"
+                  disabled
+                >附件</button>
+                <button
+                  id="command-menu-button"
+                  class="quiet composer-shortcut command-menu-button"
+                  type="button"
+                  aria-label="打开 Grok 命令"
+                  title="打开 Grok 命令"
+                  disabled
+                >/</button>
+                <button id="rewind-shortcut" class="quiet composer-shortcut" type="button" disabled>rewind</button>
+                <button
+                  id="always-approve-shortcut"
+                  class="quiet composer-shortcut always-approve-shortcut"
+                  type="button"
+                  aria-pressed="false"
+                  disabled
+                >always-approve</button>
+              </div>
+              <span class="composer-hint">电脑可按 Ctrl / ⌘ + Enter 发送</span>
+              <button id="task-button" class="primary task-button" type="submit" data-action="send" aria-label="发送" title="发送" disabled>
+                <svg class="task-send-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3M8 3 4 7M8 3l4 4"/></svg>
+                <span class="task-stop-icon" aria-hidden="true"></span>
+              </button>
             </div>
-            <button id="task-button" class="primary task-button" type="submit" disabled>发送</button>
           </div>
         </form>
       </section>
