@@ -9,6 +9,8 @@ export type StoredSessionMeta = {
   id: string;
   projectId: string;
   grokSessionId: string | null;
+  /** 只在 Grok Remote 新建会话时写入；缺失表示会话来自其他客户端。 */
+  createdByRemote?: true;
   permissionMode: PermissionMode;
   title: string;
   createdAt: number;
@@ -70,6 +72,7 @@ export class RemoteSessionStore {
       id,
       projectId,
       grokSessionId: null,
+      createdByRemote: true,
       permissionMode: "ask",
       title,
       createdAt: Math.floor(Date.now() / 1_000),

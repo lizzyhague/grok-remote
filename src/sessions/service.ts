@@ -110,6 +110,7 @@ export class SessionService {
     );
     const sessions: SessionSummary[] = [];
     for (const record of fromDisk) {
+      if (!await this.#isRemoteCreated(record.id)) continue;
       if (this.#layout.isTrashed(record.id)) continue;
       const archived = this.#layout.isArchived(record.id);
       if (view === "archived" ? !archived : archived) continue;
@@ -358,6 +359,7 @@ export class SessionService {
       .sort((left, right) => right.deletedAt - left.deletedAt);
     const matched: SessionSummary[] = [];
     for (const entry of entries) {
+      if (!await this.#isRemoteCreated(entry.sessionId)) continue;
       const record = await this.#disk.read(entry.sessionId);
       if (!record) continue;
       try {
@@ -395,6 +397,7 @@ export class SessionService {
       if (this.#layout.isTrashed(entry.sessionId) || this.#layout.isArchived(entry.sessionId)) {
         continue;
       }
+      if (!await this.#isRemoteCreated(entry.sessionId)) continue;
       const record = await this.#disk.read(entry.sessionId);
       if (!record) continue;
       const summary = this.#toSummary(record, entry.projectId, true);
@@ -469,6 +472,10 @@ export class SessionService {
       clientMessageIds: {},
       clientMessagePayloads: {},
     });
+  }
+
+  async #isRemoteCreated(sessionId: string): Promise<boolean> {
+    return (await this.#store.readMeta(sessionId))?.createdByRemote === true;
   }
 
   async #assertCanManage(projectId: string, sessionId: string): Promise<void> {

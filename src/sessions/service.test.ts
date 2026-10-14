@@ -27,6 +27,7 @@ async function createFixture(context: TestContext) {
   await writeSummary(path.join(group, "session-keep"), "session-keep", projectPath, "Keep me");
   const layout = await SessionLayoutStore.open(path.join(root, "layout.json"));
   const store = new RemoteSessionStore(path.join(root, "state"));
+  await markRemoteCreated(store, "session-keep", "workspace/alpha", "Keep me");
   return {
     catalog,
     disk: new GrokSessionDisk(grokHome),
@@ -56,6 +57,25 @@ async function writeSummary(
   }));
 }
 
+async function markRemoteCreated(
+  store: RemoteSessionStore,
+  id: string,
+  projectId: string,
+  title: string,
+): Promise<void> {
+  await store.writeMeta({
+    id,
+    projectId,
+    grokSessionId: id,
+    createdByRemote: true,
+    permissionMode: "ask",
+    title,
+    createdAt: 1,
+    clientMessageIds: {},
+    clientMessagePayloads: {},
+  });
+}
+
 test("lists disk sessions and keeps pending sessions off the list", async (context) => {
   const { catalog, disk, store, layout, projectId } = await createFixture(context);
   const service = new SessionService(catalog, disk, store, layout);
@@ -64,6 +84,31 @@ test("lists disk sessions and keeps pending sessions off the list", async (conte
   assert.deepEqual(page.sessions.map((session) => session.id), ["session-keep"]);
   assert.equal(page.sessions[0]?.pending, false);
   assert.equal(page.sessions[0]?.projectName, "alpha");
+});
+
+test("lists only sessions created by Grok Remote in every view", async (context) => {
+  const { catalog, disk, store, layout, projectId, projectPath, group } =
+    await createFixture(context);
+  for (const id of ["external-active", "external-archived", "external-trash", "external-marked"]) {
+    await writeSummary(path.join(group, id), id, projectPath, id);
+  }
+  const service = new SessionService(catalog, disk, store, layout);
+  await service.ensureMeta(projectId, "external-active");
+  assert.equal((await store.readMeta("external-active"))?.createdByRemote, undefined);
+  await layout.archive("external-archived", projectId);
+  await layout.moveToTrash({
+    sessionId: "external-trash",
+    projectId,
+    deletedAt: 100,
+    origin: "active",
+  });
+  await layout.mark("external-marked", projectId);
+
+  const active = await service.list(projectId);
+  assert.deepEqual(active.sessions.map((session) => session.id), ["session-keep"]);
+  assert.deepEqual(active.marked, []);
+  assert.deepEqual((await service.list(projectId, { view: "archived" })).sessions, []);
+  assert.deepEqual((await service.list(projectId, { view: "trash" })).sessions, []);
 });
 
 test("archives a session, hides it from active, and restores it", async (context) => {
@@ -239,6 +284,7 @@ test("pins marked sessions across projects and omits them from the directory pag
   await mkdir(betaPath, { recursive: true });
   const betaGroup = path.join(grokHome, "sessions", encodeURIComponent(betaPath));
   await writeSummary(path.join(betaGroup, "session-beta"), "session-beta", betaPath, "Other project");
+  await markRemoteCreated(store, "session-beta", "workspace/beta", "Other project");
   const service = new SessionService(catalog, disk, store, layout);
 
   const pinned = await service.setMarked("workspace/beta", "session-beta", true);
@@ -269,6 +315,7 @@ test("keeps archived marked sessions out of the recent-session pin group", async
 test("creates session meta for a disk session that was never opened", async (context) => {
   const { catalog, disk, store, layout, projectId } = await createFixture(context);
   const service = new SessionService(catalog, disk, store, layout);
+  await store.delete("session-keep");
   assert.equal(await store.readMeta("session-keep"), null);
 
   await service.ensureMeta(projectId, "session-keep");
@@ -278,6 +325,7 @@ test("creates session meta for a disk session that was never opened", async (con
   assert.equal(meta?.grokSessionId, "session-keep");
   assert.equal(meta?.title, "Keep me");
   assert.equal(meta?.permissionMode, "ask");
+  assert.equal(meta?.createdByRemote, undefined);
 
   await store.writeMeta({ ...meta!, title: "cached" });
   await service.ensureMeta(projectId, "session-keep");
