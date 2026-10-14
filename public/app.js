@@ -1,5 +1,7 @@
 import { renderMarkdown, sanitizeHref } from "./markdown.js";
-import { createNoticeController, NOTICE_DURATION_MS } from "./notice.js";
+import { createConfirmDialog } from "./confirm-dialog.js";
+import { createNoticeController } from "./notice.js";
+import { createSelectionBar, trashRemainingText } from "./selection-bar.js";
 
 const TOKEN_KEY = "grok-remote-token";
 const PROJECT_KEY = "grok-remote.project";
@@ -14,6 +16,42 @@ const WAITING_APPROVAL_NOTICE = "正在等待审批。";
 const TEMPORARY_INFO = Object.freeze({ lifetime: "temporary", tone: "info" });
 const TEMPORARY_WARNING = Object.freeze({ lifetime: "temporary", tone: "warning" });
 const TEMPORARY_ERROR = Object.freeze({ lifetime: "temporary", tone: "error" });
+const SESSION_ORGANIZING_BUSY_MESSAGE = "这个项目有正在执行的任务，暂时不能整理会话。";
+const SESSION_SELECTION_VIEWS = Object.freeze({
+  active: { actions: [
+    { id: "archive", label: "归档", resultLabel: "归档", icon: "archive" },
+    {
+      id: "trash-active",
+      label: "删除",
+      resultLabel: "删除",
+      icon: "delete",
+      danger: true,
+      retention: true,
+    },
+  ] },
+  archived: { actions: [
+    { id: "unarchive", label: "取消归档", resultLabel: "取消归档", icon: "unarchive" },
+    {
+      id: "trash-archived",
+      label: "删除",
+      resultLabel: "删除",
+      icon: "delete",
+      danger: true,
+      retention: true,
+    },
+  ] },
+  trash: { actions: [
+    { id: "restore-trash", label: "恢复", resultLabel: "恢复", icon: "restore" },
+    {
+      id: "delete-trash",
+      label: "永久删除",
+      resultLabel: "永久删除",
+      icon: "purge",
+      danger: true,
+      permanent: true,
+    },
+  ] },
+});
 /** 输入框失焦后稍等再点亮 rewind / always-approve，避免同一下既失焦又点到确认。 */
 const COMPOSER_CONFIRM_UNLOCK_MS = 300;
 
@@ -44,25 +82,18 @@ const elements = {
   sessionViewTitle: byId("session-view-title"),
   selectSessionsButton: byId("select-sessions-button"),
   selectionHeading: byId("selection-heading"),
-  cancelSelectionButton: byId("cancel-selection-button"),
-  selectionCount: byId("selection-count"),
-  selectAllSessionsButton: byId("select-all-sessions-button"),
   sessionList: byId("session-list"),
   loadMoreSessionsButton: byId("load-more-sessions-button"),
   archivedSessionsButton: byId("archived-sessions-button"),
   trashSessionsButton: byId("trash-sessions-button"),
-  bulkPrimaryButton: byId("bulk-primary-button"),
-  bulkTrashButton: byId("bulk-trash-button"),
-  bulkArchiveIcon: byId("bulk-archive-icon"),
-  bulkUnarchiveIcon: byId("bulk-unarchive-icon"),
-  bulkRestoreIcon: byId("bulk-restore-icon"),
-  bulkDeleteIcon: byId("bulk-delete-icon"),
-  bulkDeletePermanentlyIcon: byId("bulk-delete-permanently-icon"),
-  selectAllIcon: byId("select-all-icon"),
-  selectNoneIcon: byId("select-none-icon"),
   appAlertDialog: byId("app-alert-dialog"),
   appAlertTitle: byId("app-alert-title"),
   appAlertMessage: byId("app-alert-message"),
+  confirmDialog: byId("confirm-dialog"),
+  confirmDialogTitle: byId("confirm-dialog-title"),
+  confirmDialogMessage: byId("confirm-dialog-message"),
+  confirmDialogAcceptButton: byId("confirm-dialog-accept-button"),
+  confirmDialogCancelButton: byId("confirm-dialog-cancel-button"),
   renameSessionDialog: byId("rename-session-dialog"),
   renameSessionForm: byId("rename-session-form"),
   renameSessionInput: byId("rename-session-input"),
@@ -113,8 +144,6 @@ const state = {
   sessionLoading: false,
   navigationBusy: false,
   sessionLoadGeneration: 0,
-  selectionMode: false,
-  selectedSessions: new Set(),
   currentSessionId: null,
   sessionTitle: "",
   lastSeq: 0,
@@ -139,6 +168,36 @@ const noticeController = createNoticeController({
   actionButton: elements.noticeActionButton,
   closeButton: elements.noticeCloseButton,
   onActionError: (error) => showNotice(errorMessage(error), TEMPORARY_ERROR),
+});
+const confirmDialogController = createConfirmDialog({
+  dialog: elements.confirmDialog,
+  titleElement: elements.confirmDialogTitle,
+  messageElement: elements.confirmDialogMessage,
+  acceptButton: elements.confirmDialogAcceptButton,
+  cancelButton: elements.confirmDialogCancelButton,
+});
+const selectionBar = createSelectionBar({
+  container: elements.selectionHeading,
+  views: SESSION_SELECTION_VIEWS,
+  initialView: state.sessionView,
+  noun: "会话",
+  untitledLabel: "新会话",
+  permanentDeleteDetail: "会话原文会一并删除",
+  getId: (session) => session.id,
+  getTitle: (session) => session.title,
+  isSelectable: sessionSelectable,
+  isPinned: (session) => Boolean(session.marked),
+  executeAction: executeSessionSelectionAction,
+  refreshItems: () => loadSessions(),
+  confirm: (message, options) => confirmDialogController.show(message, options),
+  notify: (message, tone) => showNotice(
+    message,
+    tone === "error" ? TEMPORARY_ERROR : TEMPORARY_INFO,
+  ),
+  errorMessage,
+  onSelectionChange: renderSessionList,
+  onBusyChange: setNavigationBusy,
+  onBack: () => setSessionView("active"),
 });
 
 elements.tokenForm.addEventListener("submit", (event) => {
@@ -168,19 +227,7 @@ elements.trashSessionsButton.addEventListener("click", () => {
   setSessionView("trash");
 });
 elements.selectSessionsButton.addEventListener("click", () => {
-  setSelectionMode(true);
-});
-elements.cancelSelectionButton.addEventListener("click", () => {
-  setSelectionMode(false);
-});
-elements.selectAllSessionsButton.addEventListener("click", () => {
-  toggleSelectAllSessions();
-});
-elements.bulkPrimaryButton.addEventListener("click", () => {
-  void runBulkPrimaryAction();
-});
-elements.bulkTrashButton.addEventListener("click", () => {
-  void runBulkDangerAction();
+  selectionBar.setManualSelection(true);
 });
 elements.collapseSidebarButton.addEventListener("click", closeSidebar);
 elements.openSidebarButton.addEventListener("click", openSidebar);
@@ -458,6 +505,10 @@ async function loadSessions({ append = false } = {}) {
 async function startSession() {
   if (!state.projectId) return;
   if (state.sessionView !== "active") setSessionView("active", false);
+  else if (selectionBar.isSelecting()) {
+    selectionBar.setView("active");
+    renderSessionList();
+  }
   setNavigationBusy(true);
   try {
     const opened = await request("session.start", { projectId: state.projectId });
@@ -623,10 +674,10 @@ function applyOpenedSession(opened) {
 
 function setSessionView(view, load = true) {
   state.sessionView = view;
+  selectionBar.setView(view);
   state.sessions = [];
   state.markedSessions = [];
   state.sessionCursor = null;
-  setSelectionMode(false, false);
   elements.sessionViewTitle.textContent = view === "active"
     ? "最近会话"
     : view === "archived"
@@ -640,21 +691,15 @@ function setSessionView(view, load = true) {
   if (load) void loadSessions();
 }
 
-function setSelectionMode(enabled, render = true) {
-  state.selectionMode = enabled;
-  state.selectedSessions.clear();
-  elements.sessionViewTitle.parentElement.hidden = enabled;
-  elements.selectionHeading.hidden = !enabled;
-  if (render) renderSessionList();
-  updateSelectionControls();
-}
-
 function setNavigationBusy(busy) {
   state.navigationBusy = busy;
   updateControls();
 }
 
 function renderSessionList() {
+  // 刷新开始时列表会暂时清空；等这一轮落地后再对账，不能把仍存在的选择提前丢掉。
+  if (!state.sessionLoading) selectionBar.reconcile(visibleSessionSummaries());
+  elements.sessionViewTitle.parentElement.hidden = selectionBar.isSelecting();
   elements.sessionList.replaceChildren();
   const marked = state.sessionView === "active" ? state.markedSessions : [];
   if (marked.length > 0) {
@@ -691,7 +736,6 @@ function renderSessionList() {
     }
   }
   elements.loadMoreSessionsButton.hidden = !state.sessionCursor;
-  updateSelectionControls();
   updateControls();
 }
 
@@ -702,24 +746,25 @@ function createSessionItem(session) {
   item.dataset.state = session.state || "not_loaded";
   item.setAttribute("role", "listitem");
 
-  if (state.selectionMode) {
+  if (selectionBar.isSelecting()) {
     const label = document.createElement("label");
     label.className = "session-select-label";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
-    checkbox.checked = state.selectedSessions.has(session.id);
-    checkbox.disabled = session.state === "active" || session.pending === true;
+    const selectable = selectionBar.isSelectable(session);
+    item.dataset.selectable = String(selectable);
+    checkbox.checked = selectable && selectionBar.isSelected(session.id);
+    checkbox.disabled = !selectable;
     checkbox.setAttribute("aria-label", `选择 ${session.title || "新会话"}`);
+    if (session.state === "active") {
+      label.title = SESSION_ORGANIZING_BUSY_MESSAGE;
+    } else if (session.pending === true) {
+      label.title = "草稿会话还没有发出，暂时不能整理。";
+    } else if (!selectable) {
+      label.title = "这个会话属于其他项目，切换到它的项目后再整理。";
+    }
     checkbox.addEventListener("change", () => {
-      if (checkbox.checked && state.selectedSessions.size >= 100) {
-        checkbox.checked = false;
-        showNotice("一次最多整理 100 个会话。", TEMPORARY_WARNING);
-      } else if (checkbox.checked) {
-        state.selectedSessions.add(session.id);
-      } else {
-        state.selectedSessions.delete(session.id);
-      }
-      updateSelectionControls();
+      selectionBar.toggle(session.id);
     });
     const text = document.createElement("span");
     appendSessionText(text, session);
@@ -982,136 +1027,37 @@ function visibleSessionSummaries() {
   return items;
 }
 
-function selectableSessions() {
-  return visibleSessionSummaries().filter((session) => session.state !== "active" && session.pending !== true);
+/**
+ * 批量整理只作用于当前项目：跨项目钉住的会话出现在「最近」顶部，但不能混进
+ * 以当前项目为目标的一次请求；尚未发出的本地草稿也没有后端会话可整理。
+ */
+function sessionSelectable(session) {
+  return session.state !== "active" && session.pending !== true &&
+    Boolean(state.projectId) && session.projectId === state.projectId;
 }
 
-function toggleSelectAllSessions() {
-  const ids = selectableSessions().map((session) => session.id);
-  const capped = ids.slice(0, 100);
-  const allSelected = capped.length > 0 && capped.every((id) => state.selectedSessions.has(id));
-  if (allSelected) {
-    state.selectedSessions.clear();
-  } else {
-    state.selectedSessions = new Set(capped);
-    if (ids.length > 100) showNotice("一次最多整理 100 个会话。", TEMPORARY_WARNING);
-  }
-  renderSessionList();
-}
-
-function updateSelectionControls() {
-  const count = state.selectedSessions.size;
-  const cappedIds = selectableSessions().map((session) => session.id).slice(0, 100);
-  const allSelected = cappedIds.length > 0 &&
-    cappedIds.every((id) => state.selectedSessions.has(id));
-  elements.selectionCount.textContent = `已选择 ${count} 项`;
-  const selectAllLabel = allSelected ? "取消全选" : "全选";
-  elements.selectAllSessionsButton.setAttribute("aria-label", selectAllLabel);
-  elements.selectAllSessionsButton.title = selectAllLabel;
-  elements.selectAllIcon.hidden = allSelected;
-  elements.selectNoneIcon.hidden = !allSelected;
-  elements.bulkPrimaryButton.disabled = count === 0 || state.sessionLoading;
-  elements.bulkTrashButton.disabled = count === 0 || state.sessionLoading;
-  const primaryLabel = state.sessionView === "active"
-    ? "归档"
-    : state.sessionView === "archived"
-    ? "取消归档"
-    : "恢复";
-  const dangerLabel = state.sessionView === "trash" ? "永久删除" : "删除";
-  elements.bulkPrimaryButton.setAttribute("aria-label", primaryLabel);
-  elements.bulkPrimaryButton.title = primaryLabel;
-  elements.bulkTrashButton.setAttribute("aria-label", dangerLabel);
-  elements.bulkTrashButton.title = dangerLabel;
-  elements.bulkArchiveIcon.hidden = state.sessionView !== "active";
-  elements.bulkUnarchiveIcon.hidden = state.sessionView !== "archived";
-  elements.bulkRestoreIcon.hidden = state.sessionView !== "trash";
-  elements.bulkDeleteIcon.hidden = state.sessionView === "trash";
-  elements.bulkDeletePermanentlyIcon.hidden = state.sessionView !== "trash";
-}
-
-async function runBulkPrimaryAction() {
-  const action = state.sessionView === "active"
-    ? "archive"
-    : state.sessionView === "archived"
-    ? "unarchive"
-    : "restore-trash";
-  await mutateSessions(action, [...state.selectedSessions]);
-}
-
-async function runBulkDangerAction() {
-  const sessionIds = [...state.selectedSessions];
-  if (sessionIds.length === 0) return;
-  if (state.sessionView === "trash") {
-    const selected = visibleSessionSummaries().filter((session) => state.selectedSessions.has(session.id));
-    if (!window.confirm(
-      selected.length === 1
-        ? `立刻永久删除「${selected[0].title || "新会话"}」。这一步无法撤销，会话原文会一并删除。继续吗？`
-        : `立刻永久删除 ${selected.length} 个会话。这一步无法撤销，会话原文会一并删除。继续吗？`,
-    )) return;
-    await mutateSessions("delete-trash", sessionIds);
-    return;
-  }
-  if (sessionIds.length > 1 && !window.confirm(
-    `删除 ${sessionIds.length} 个会话。30 天内可以在回收站里还原，到期后自动永久删除。继续吗？`,
-  )) return;
-  const action = state.sessionView === "archived" ? "trash-archived" : "trash-active";
-  await mutateSessions(action, sessionIds);
-}
-
-async function mutateSessions(action, sessionIds) {
-  if (!state.projectId || sessionIds.length === 0) return;
+async function executeSessionSelectionAction(action, sessionIds) {
   const projectId = state.projectId;
-  setNavigationBusy(true);
-  try {
-    const result = await request("sessions.mutate", { projectId, sessionIds, action });
-    const succeeded = Array.isArray(result?.succeeded) ? result.succeeded : [];
-    const failed = Array.isArray(result?.failed) ? result.failed : [];
-    if (
-      state.currentSessionId && succeeded.includes(state.currentSessionId) &&
-      (action === "archive" || action.startsWith("trash-") || action === "delete-trash")
-    ) {
-      resetCurrentSession();
-      showEmpty("选择以前的会话，或者新建一个会话。");
-    }
-    setSelectionMode(false, false);
-    await loadSessions();
-
-    if (succeeded.length > 0) {
-      const undoAction = action === "archive"
-        ? "unarchive"
-        : action.startsWith("trash-")
-        ? "restore-trash"
-        : null;
-      const label = action === "archive"
-        ? `已归档 ${succeeded.length} 个会话。`
-        : action.startsWith("trash-")
-        ? `已删除 ${succeeded.length} 个会话，30 天后自动永久删除。`
-        : action === "delete-trash"
-        ? `已永久删除 ${succeeded.length} 个会话。`
-        : `已恢复 ${succeeded.length} 个会话。`;
-      const failureNote = failed.length > 0
-        ? ` 另有 ${failed.length} 个未能处理：${failed[0]?.message || "操作失败。"}`
-        : "";
-      if (undoAction) {
-        showActionNotice(`${label}${failureNote}`, "撤销", () =>
-          mutateSessions(undoAction, succeeded), {
-          tone: failed.length > 0 ? "error" : "info",
-        });
-      } else {
-        showNotice(`${label}${failureNote}`, failed.length > 0
-          ? TEMPORARY_ERROR
-          : TEMPORARY_INFO);
-      }
-    } else if (failed.length > 0) {
-      const first = failed[0]?.message || "操作失败。";
-      showNotice(`${failed.length} 个会话未能处理：${first}`, TEMPORARY_ERROR);
-    }
-  } catch (error) {
-    showNotice(errorMessage(error), TEMPORARY_ERROR);
-  } finally {
-    setNavigationBusy(false);
-    updateControls();
+  if (!projectId || sessionIds.length === 0) {
+    throw new Error("当前没有可以整理的会话。");
   }
+  const result = await request("sessions.mutate", { projectId, sessionIds, action });
+  const succeeded = Array.isArray(result?.succeeded) ? result.succeeded : [];
+  const failed = Array.isArray(result?.failed) ? result.failed : [];
+  if (
+    state.currentSessionId && succeeded.includes(state.currentSessionId) &&
+    (action === "archive" || action.startsWith("trash-") || action === "delete-trash")
+  ) {
+    resetCurrentSession();
+    showEmpty("选择以前的会话，或者新建一个会话。");
+  }
+  return {
+    succeeded,
+    failed: failed.map((failure) => ({
+      id: failure?.sessionId,
+      reason: failure?.message || "操作失败。",
+    })),
+  };
 }
 
 function mergeSessions(existing, incoming) {
@@ -1164,14 +1110,6 @@ function keepOpenPendingSession() {
     projectName: state.projects.find((project) => project.id === state.projectId)?.name || "",
     marked: false,
   });
-}
-
-function trashRemainingText(purgeAt) {
-  if (typeof purgeAt !== "number" || !Number.isFinite(purgeAt)) return "30 天后自动删除";
-  const remaining = purgeAt - Date.now() / 1_000;
-  if (remaining <= 0) return "即将自动删除";
-  const days = Math.max(1, Math.ceil(remaining / 86_400));
-  return `${days} 天后自动删除`;
 }
 
 function resetCurrentSession() {
@@ -2217,23 +2155,30 @@ function updateControls() {
   const confirmLocked = state.composerLocksConfirms;
   const navigationBusy = state.navigationBusy || state.sessionLoading;
   const navigationLocked = state.busy || navigationBusy || state.taskRunning || uploading;
-  const projectHasActiveTask = state.sessions.some((session) => session.state === "active");
-  elements.projectSelect.disabled = !connected || navigationLocked || state.selectionMode;
-  elements.newSessionButton.disabled = !connected || !state.projectId || navigationLocked ||
-    state.selectionMode;
-  elements.sessionSearchInput.disabled = !connected || !state.projectId || navigationBusy ||
-    state.selectionMode;
+  const projectHasActiveTask = visibleSessionSummaries().some((session) =>
+    session.projectId === state.projectId && session.state === "active"
+  );
+  const organizingBusy = state.taskRunning || state.busy || projectHasActiveTask;
+  const selectableCount = visibleSessionSummaries().filter(sessionSelectable).length;
+  elements.projectSelect.disabled = !connected || navigationLocked;
+  elements.newSessionButton.disabled = !connected || !state.projectId || navigationLocked;
+  elements.sessionSearchInput.disabled = !connected || !state.projectId || navigationBusy;
   elements.selectSessionsButton.disabled = !connected || navigationLocked ||
-    projectHasActiveTask ||
-    selectableSessions().length === 0;
-  elements.selectAllSessionsButton.disabled = !connected || navigationBusy || state.busy ||
-    state.taskRunning || selectableSessions().length === 0;
+    organizingBusy || selectableCount === 0;
+  elements.selectSessionsButton.title = organizingBusy
+    ? SESSION_ORGANIZING_BUSY_MESSAGE
+    : "选择";
+  selectionBar.setDisabled(
+    !connected || navigationBusy || organizingBusy,
+    organizingBusy ? SESSION_ORGANIZING_BUSY_MESSAGE : "",
+  );
   elements.loadMoreSessionsButton.disabled = !connected || navigationBusy;
   elements.sessionViewBackButton.disabled = !connected || navigationBusy;
   elements.archivedSessionsButton.disabled = !connected || navigationBusy;
   elements.trashSessionsButton.disabled = !connected || navigationBusy;
   for (const item of elements.sessionList.querySelectorAll(".session-item")) {
     const itemIsActive = item.dataset.state === "active";
+    const itemIsSelectable = item.dataset.selectable === "true";
     for (const button of item.querySelectorAll("button")) {
       const opensSession = button.classList.contains("session-open");
       const cannotOpen = opensSession && state.sessionView !== "active";
@@ -2241,7 +2186,9 @@ function updateControls() {
         (!opensSession && (state.taskRunning || projectHasActiveTask || itemIsActive));
     }
     for (const checkbox of item.querySelectorAll('input[type="checkbox"]')) {
-      checkbox.disabled = navigationBusy || state.busy || state.taskRunning || itemIsActive;
+      checkbox.disabled = !connected || navigationBusy || organizingBusy ||
+        itemIsActive || !itemIsSelectable;
+      checkbox.title = organizingBusy ? SESSION_ORGANIZING_BUSY_MESSAGE : "";
     }
   }
   elements.messageInput.disabled = !connected || !hasSession;
@@ -2253,7 +2200,7 @@ function updateControls() {
     ? "快捷操作执行中，可以继续写"
     : "在浏览器里写好，再发送给 Grok";
   elements.attachmentButton.disabled = !connected || !hasSession || navigationBusy ||
-    state.selectionMode || state.pendingAttachments.length >= MAX_MESSAGE_ATTACHMENTS;
+    state.pendingAttachments.length >= MAX_MESSAGE_ATTACHMENTS;
   elements.commandMenuButton.disabled = !connected || !hasSession || state.taskRunning ||
     state.busy || hasText || hasAttachments;
   elements.rewindShortcut.disabled = !connected || !hasSession || state.taskRunning || state.busy || confirmLocked;
@@ -2437,16 +2384,6 @@ function clearCurrentSessionNotice(sessionId) {
 
 function showNotice(text, options = TEMPORARY_WARNING) {
   return noticeController.show(text, options);
-}
-
-function showActionNotice(text, actionLabel, action, options = {}) {
-  return showNotice(text, {
-    lifetime: "temporary",
-    tone: "info",
-    durationMs: NOTICE_DURATION_MS.undo,
-    ...options,
-    action: { label: actionLabel, run: action },
-  });
 }
 
 function clearNotice(key) {

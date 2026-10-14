@@ -58,7 +58,14 @@ test("serves health and authenticated WebSocket only on loopback", async () => {
     assert.match(worker.headers.get("cache-control") ?? "", /no-cache/u);
     assert.equal(worker.headers.get("service-worker-allowed"), "/");
 
-    for (const asset of ["/boot.js", "/markdown.js", "/notice.js", "/slash-menu.js"]) {
+    for (const asset of [
+      "/boot.js",
+      "/confirm-dialog.js",
+      "/markdown.js",
+      "/notice.js",
+      "/selection-bar.js",
+      "/slash-menu.js",
+    ]) {
       const response = await fetch(`http://${address.host}:${address.port}${asset}`);
       assert.equal(response.status, 200, `${asset} should be served`);
     }
@@ -344,12 +351,14 @@ const WEB_FILES = {
   "index.html": '<head><script type="module" src="/app.js"></script><link href="/styles.css" rel="stylesheet"></head>mark-A',
   "view.html": '<head><script type="module" src="/viewer.js"></script><link href="/viewer.css" rel="stylesheet"></head>',
   "app.js": 'import "./markdown.js"; window.__PWA_MARK__ = "A";',
+  "confirm-dialog.js": "// confirm dialog",
   "markdown.js": "// dependency-A",
   "styles.css": "body { color: red }",
   "viewer.js": 'import "./markdown.js";',
   "viewer.css": ".file-viewer {}",
   "boot.js": "// boot",
   "notice.js": "// notice",
+  "selection-bar.js": "// selection bar",
   "slash-menu.js": "// menu",
   "manifest.webmanifest": "{}",
   "icon.svg": "<svg></svg>",
