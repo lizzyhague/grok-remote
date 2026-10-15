@@ -1,17 +1,75 @@
 :root {
   color-scheme: dark;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  /* Identity matches the icon: gold on purple-black. Connecting/warning
-     stay indigo/orange so they don't collide with the brand gold. */
-  background: #1c1824;
-  color: #eeeaf2;
-  --panel: #252030;
-  --panel-raised: #2e283a;
-  --border: #403a4e;
-  --muted: #a8a2b0;
-  --accent: #f3c56b;
-  --accent-ink: #1c1408;
+  background: var(--surface-page);
+  color: var(--text);
+
+  /* 配色输入 */
+  --tint: #1c1824;
+  --theme: #f3c56b;
+  --theme-ink: #1c1408;
+
+  /* 共用混合比例；浅主题色暂不向白提亮，以接近现状。 */
+  --mix-surface-sunken: 65%;
+  --mix-surface-page: 100%;
+  --mix-surface-1: 96%;
+  --mix-surface-2: 94%;
+  --mix-surface-3: 88%;
+  --mix-border: 84%;
+  --mix-border-strong: 72%;
+  --mix-text: 2%;
+  --mix-text-mid: 20%;
+  --mix-text-muted: 30%;
+  --mix-theme-bright: 100%;
+  --mix-theme-wash: 14%;
+  --mix-bubble-user: 90%;
+  --mix-danger-wash: 10%;
+  --mix-warning-wash: 10%;
+  --mix-success-wash: 10%;
+  --mix-info-wash: 10%;
+  --mix-bubble-ai: 6%;
+  --mix-permission: 8%;
+  --mix-copy-success: 12%;
+
+  /* 推导角色 */
+  --surface-sunken: color-mix(in srgb, var(--tint) var(--mix-surface-sunken), black);
+  --surface-page: color-mix(in srgb, var(--tint) var(--mix-surface-page), black);
+  --surface-1: color-mix(in srgb, var(--tint) var(--mix-surface-1), white);
+  --surface-2: color-mix(in srgb, var(--tint) var(--mix-surface-2), white);
+  --surface-3: color-mix(in srgb, var(--tint) var(--mix-surface-3), white);
+  --border: color-mix(in srgb, var(--tint) var(--mix-border), white);
+  --border-strong: color-mix(in srgb, var(--tint) var(--mix-border-strong), white);
+  --divider: color-mix(in srgb, var(--border) 58%, transparent);
+  --text: color-mix(in srgb, var(--tint) var(--mix-text), white);
+  --text-mid: color-mix(in srgb, var(--tint) var(--mix-text-mid), white);
+  --text-muted: color-mix(in srgb, var(--tint) var(--mix-text-muted), white);
+  --theme-bright: color-mix(in srgb, var(--theme) var(--mix-theme-bright), white);
+  --theme-wash: color-mix(in srgb, var(--theme) var(--mix-theme-wash), var(--surface-2));
+  --bubble-user: color-mix(in srgb, var(--tint) var(--mix-bubble-user), white);
+  --hover: rgb(255 255 255 / 4%);
+  --scrim: rgb(0 0 0 / 55%);
   --danger: #fca5a5;
+  --danger-wash: color-mix(in srgb, var(--danger) var(--mix-danger-wash), var(--surface-2));
+  --warning: #fdba74;
+  --warning-wash: color-mix(in srgb, var(--warning) var(--mix-warning-wash), var(--surface-2));
+  --success: #4ade80;
+  --success-wash: color-mix(in srgb, var(--success) var(--mix-success-wash), var(--surface-2));
+  --info: #818cf8;
+  --info-wash: color-mix(in srgb, var(--info) var(--mix-info-wash), var(--surface-2));
+  --shadow-sm: 8px rgb(0 0 0 / 45%);
+  --shadow-md: 44px rgb(0 0 0 / 42%);
+  --shadow-lg: 90px rgb(0 0 0 / 52%);
+
+  /* 选色时只切换这些值，规则保持不动。 */
+  --bubble-ai: color-mix(in srgb, var(--theme) var(--mix-bubble-ai), var(--surface-2));
+  --permission-fill: color-mix(in srgb, var(--theme) var(--mix-permission), var(--surface-2));
+  --copy-success-fill: color-mix(in srgb, var(--theme) var(--mix-copy-success), var(--surface-2));
+  --stop-fill: #2a1e1a;
+  --stop-border: var(--border);
+  --danger-border: #7f1d1d;
+  --notice-fill: var(--hover);
+  --attachment-border: var(--border);
+
   --max-width: 920px;
   --sidebar-width: clamp(260px, 20vw, 304px);
 }
@@ -28,7 +86,7 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background: #1c1824;
+  background: var(--surface-page);
 }
 
 body {
@@ -65,13 +123,13 @@ textarea {
 button {
   min-height: 42px;
   padding: 0.55rem 0.9rem;
-  background: var(--panel-raised);
-  color: #f4f1f7;
+  background: var(--surface-3);
+  color: var(--text);
   cursor: pointer;
 }
 
 button:hover:not(:disabled) {
-  border-color: #6a6278;
+  border-color: var(--border-strong);
 }
 
 button:disabled {
@@ -80,14 +138,14 @@ button:disabled {
 }
 
 button.primary {
-  border-color: #e8b55a;
-  background: var(--accent);
-  color: var(--accent-ink);
+  border-color: var(--theme-bright);
+  background: var(--theme);
+  color: var(--theme-ink);
   font-weight: 700;
 }
 
 button.danger:not(:disabled) {
-  border-color: #7f1d1d;
+  border-color: var(--danger-border);
   color: var(--danger);
 }
 
@@ -115,8 +173,8 @@ button.small {
   padding: 2rem;
   border: 1px solid var(--border);
   border-radius: 18px;
-  background: var(--panel);
-  box-shadow: 0 24px 70px rgb(0 0 0 / 28%);
+  background: var(--surface-2);
+  box-shadow: 0 24px var(--shadow-lg);
 }
 
 .login-card h1 {
@@ -124,7 +182,7 @@ button.small {
 }
 
 .login-card p {
-  color: var(--muted);
+  color: var(--text-muted);
   line-height: 1.5;
 }
 
@@ -132,14 +190,14 @@ button.small {
   display: block;
   margin: 1.3rem 0 0.4rem;
   font-size: 0.9rem;
-  color: #d4d0da;
+  color: var(--text-mid);
 }
 
 .login-card input {
   width: auto;
   padding: 0.75rem;
-  background: #14111c;
-  color: #fff;
+  background: var(--surface-sunken);
+  color: var(--text);
 }
 
 .login-card button {
@@ -199,7 +257,7 @@ button.small {
   height: 100dvh;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto auto;
-  background: #1c1824;
+  background: var(--surface-page);
 }
 
 .session-sidebar {
@@ -211,7 +269,7 @@ button.small {
   grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
   overflow: hidden;
   border-right: 1px solid var(--border);
-  background: #201c2a;
+  background: var(--surface-1);
   transition: opacity 120ms ease;
 }
 
@@ -317,8 +375,8 @@ button.icon-button svg {
 .session-search input {
   min-height: 34px;
   padding: 0 0.7rem;
-  background: #14111c;
-  color: #f3f1f6;
+  background: var(--surface-sunken);
+  color: var(--text);
 }
 
 .project-controls select {
@@ -354,7 +412,7 @@ button.icon-button svg {
   min-height: 44px;
   justify-content: space-between;
   border-bottom: 1px solid var(--border);
-  background: rgb(243 197 107 / 10%);
+  background: var(--theme-wash);
 }
 
 .selection-heading-end {
@@ -378,7 +436,7 @@ button.icon-button svg {
 .session-list-empty {
   margin: 0;
   padding: 2rem 1rem;
-  color: var(--muted);
+  color: var(--text-muted);
   text-align: center;
   line-height: 1.5;
 }
@@ -388,11 +446,11 @@ button.icon-button svg {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: stretch;
-  border-bottom: 1px solid rgb(64 58 78 / 58%);
+  border-bottom: 1px solid var(--divider);
 }
 
 .session-item[data-current="true"] {
-  background: rgb(243 197 107 / 14%);
+  background: var(--theme-wash);
 }
 
 .session-open,
@@ -413,7 +471,7 @@ button.icon-button svg {
 
 .session-open:hover:not(:disabled),
 .session-select-label:hover {
-  background: rgb(255 255 255 / 4%);
+  background: var(--hover);
 }
 
 .session-open:disabled {
@@ -430,7 +488,7 @@ button.icon-button svg {
 }
 
 .session-item-title {
-  color: #f3f1f6;
+  color: var(--text);
   font-size: 0.93rem;
   font-weight: 400;
 }
@@ -438,12 +496,12 @@ button.icon-button svg {
 .session-item-preview,
 .session-item-meta {
   margin-top: 0.2rem;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.76rem;
 }
 
 .session-item-meta[data-warning="true"] {
-  color: #fdba74;
+  color: var(--warning);
 }
 
 .session-mark-group .session-item:last-child {
@@ -453,7 +511,7 @@ button.icon-button svg {
 .session-mark-divider {
   margin: 0.4rem 0.85rem;
   border: 0;
-  border-top: 2px solid var(--accent);
+  border-top: 2px solid var(--theme);
 }
 
 .session-rename-trigger,
@@ -464,7 +522,7 @@ button.icon-button svg {
   padding: 0;
   display: grid;
   place-items: center;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .session-rename-trigger .session-rename-icon,
@@ -482,7 +540,7 @@ button.icon-button svg {
 }
 
 .session-mark-trigger[aria-pressed="true"] {
-  color: var(--accent);
+  color: var(--theme);
 }
 
 .session-rename-trigger,
@@ -504,14 +562,14 @@ button.icon-button svg {
 .alert-dialog {
   width: min(430px, calc(100vw - 1.5rem));
   padding: 0;
-  color: #eceef2;
-  background: var(--panel);
+  color: var(--text);
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 14px;
 }
 
 .alert-dialog::backdrop {
-  background: rgb(0 0 0 / 55%);
+  background: var(--scrim);
 }
 
 .alert-card {
@@ -529,7 +587,7 @@ button.icon-button svg {
 
 .alert-card p {
   margin-top: 0.7rem;
-  color: var(--muted);
+  color: var(--text-muted);
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
@@ -554,14 +612,14 @@ button.icon-button svg {
 .app-alert-dialog {
   width: min(440px, calc(100vw - 2rem));
   padding: 1.25rem;
-  color: #eeeaf2;
-  background: var(--panel);
+  color: var(--text);
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 14px;
 }
 
 .app-alert-dialog::backdrop {
-  background: rgb(0 0 0 / 55%);
+  background: var(--scrim);
 }
 
 .app-alert-dialog h2 {
@@ -571,7 +629,7 @@ button.icon-button svg {
 
 .app-alert-dialog p {
   margin: 0 0 1rem;
-  color: var(--muted);
+  color: var(--text-muted);
   line-height: 1.5;
 }
 
@@ -589,8 +647,8 @@ button.icon-button svg {
 .rename-field input {
   width: 100%;
   padding: 0.65rem;
-  background: #14111c;
-  color: #fff;
+  background: var(--surface-sunken);
+  color: var(--text);
 }
 
 .rename-card .form-status:empty {
@@ -610,7 +668,7 @@ button.icon-button svg {
   width: 1.1rem;
   height: 1.1rem;
   margin: 0;
-  accent-color: #f3c56b;
+  accent-color: var(--theme);
 }
 
 .session-select-label:has(input:disabled) {
@@ -622,7 +680,7 @@ button.icon-button svg {
   min-width: var(--sidebar-width);
   border-width: 1px 0 0;
   border-radius: 0;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .sidebar-open-button {
@@ -650,7 +708,7 @@ button.icon-button svg {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--border);
-  background: #201c2a;
+  background: var(--surface-1);
 }
 
 .conversation-heading {
@@ -676,7 +734,7 @@ button.icon-button svg {
 .connection-status {
   margin-left: 0.65rem;
   font-size: 0.8rem;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .connection-status::before {
@@ -686,15 +744,15 @@ button.icon-button svg {
   height: 0.52rem;
   margin-right: 0.35rem;
   border-radius: 50%;
-  background: #818cf8;
+  background: var(--info);
 }
 
 .connection-status[data-state="connected"]::before {
-  background: #4ade80;
+  background: var(--success);
 }
 
 .connection-status[data-state="disconnected"]::before {
-  background: #f87171;
+  background: var(--danger);
 }
 
 .timeline {
@@ -713,7 +771,7 @@ button.icon-button svg {
 }
 
 .history-loader button {
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .thinking-indicator {
@@ -725,8 +783,8 @@ button.icon-button svg {
   gap: 0.5rem;
   border: 1px solid var(--border);
   border-radius: 13px;
-  background: var(--panel);
-  color: var(--muted);
+  background: var(--surface-2);
+  color: var(--text-muted);
   font-size: 0.9rem;
 }
 
@@ -740,7 +798,7 @@ button.icon-button svg {
   width: 0.3rem;
   height: 0.3rem;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--theme);
   animation: thinking-pulse 1.1s ease-in-out infinite;
 }
 
@@ -757,7 +815,7 @@ button.icon-button svg {
   display: grid;
   place-items: center;
   text-align: center;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .message {
@@ -767,14 +825,14 @@ button.icon-button svg {
   padding: 0.85rem 1rem;
   border: 1px solid var(--border);
   border-radius: 15px;
-  background: var(--panel);
+  background: var(--bubble-ai);
   line-height: 1.58;
 }
 
 .message.user {
   margin-left: auto;
-  background: rgb(243 197 107 / 16%);
-  border-color: rgb(243 197 107 / 36%);
+  background: var(--bubble-user);
+  border-color: var(--border);
 }
 
 .message.assistant {
@@ -840,13 +898,13 @@ button.icon-button svg {
 .markdown-body blockquote {
   padding-left: 0.8rem;
   border-left: 3px solid var(--border);
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .markdown-body code {
   padding: 0.12rem 0.3rem;
   border-radius: 5px;
-  background: #14111c;
+  background: var(--surface-sunken);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 0.9em;
 }
@@ -856,7 +914,7 @@ button.icon-button svg {
   max-width: 100%;
   border: 1px solid var(--border);
   border-radius: 9px;
-  background: #14111c;
+  background: var(--surface-sunken);
 }
 
 .markdown-body pre {
@@ -889,18 +947,20 @@ button.icon-button svg {
   padding: 0;
   border-radius: 6px;
   /* 按钮压在代码第一行上，底色必须不透明，阴影用来和下面的字拉开层次。 */
-  background: var(--panel-raised);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 45%);
-  color: #d4d0da;
+  background: var(--surface-3);
+  box-shadow: 0 2px var(--shadow-sm);
+  color: var(--text-mid);
 }
 
 .markdown-code-copy[data-state="success"] {
-  border-color: #8a7038;
-  color: var(--accent);
+  border-color: var(--theme);
+  background: var(--copy-success-fill);
+  color: var(--theme);
 }
 
 .markdown-code-copy[data-state="error"] {
-  border-color: #7f1d1d;
+  border-color: var(--danger);
+  background: var(--danger-wash);
   color: var(--danger);
 }
 
@@ -910,7 +970,7 @@ button.icon-button svg {
 }
 
 .markdown-body a {
-  color: var(--accent);
+  color: var(--theme);
 }
 
 .markdown-image-link::before {
@@ -942,7 +1002,7 @@ button.icon-button svg {
 }
 
 .markdown-body th {
-  background: #14111c;
+  background: var(--surface-sunken);
   font-weight: 650;
 }
 
@@ -953,7 +1013,7 @@ button.icon-button svg {
   height: 1em;
   margin-left: 0.18rem;
   vertical-align: -0.12em;
-  background: var(--accent);
+  background: var(--theme);
   animation: blink 0.9s steps(1) infinite;
 }
 
@@ -965,14 +1025,14 @@ button.icon-button svg {
   margin: 0 0 0.9rem;
   border: 1px solid var(--border);
   border-radius: 11px;
-  background: #14111c;
-  color: #d4d0da;
+  background: var(--surface-sunken);
+  color: var(--text-mid);
 }
 
 .command summary {
   padding: 0.65rem 0.8rem;
   cursor: pointer;
-  color: #c9c4d0;
+  color: var(--text-mid);
   overflow-wrap: anywhere;
 }
 
@@ -986,7 +1046,7 @@ button.icon-button svg {
 
 .command-kicker {
   margin-bottom: 0.28rem;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.72rem;
 }
 
@@ -1008,11 +1068,11 @@ button.icon-button svg {
 }
 
 .command-input {
-  color: #e8e4ee;
+  color: var(--text);
 }
 
 .command-output {
-  color: #e8d5a0;
+  color: var(--text-mid);
 }
 
 .command-resources {
@@ -1026,12 +1086,12 @@ button.icon-button svg {
 }
 
 .command-resources a {
-  color: #9bc8ff;
+  color: var(--info);
 }
 
 .command-resource-empty {
   margin: 0;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.82rem;
 }
 
@@ -1039,7 +1099,7 @@ button.icon-button svg {
 .file-change,
 .task-note {
   margin: 0 0 0.9rem;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.87rem;
 }
 
@@ -1052,7 +1112,11 @@ button.icon-button svg {
 .notice {
   padding: 0.7rem max(1rem, calc((100% - var(--max-width)) / 2));
   border-top: 1px solid var(--border);
-  background: #252030;
+}
+
+.approval-list {
+  border-top-color: var(--theme);
+  background: var(--permission-fill);
 }
 
 .approval-card {
@@ -1070,11 +1134,12 @@ button.icon-button svg {
 .approval-card small {
   display: block;
   margin-top: 0.25rem;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .notice {
-  color: #fdba74;
+  background: var(--surface-2);
+  color: var(--warning);
   font-size: 0.9rem;
 }
 
@@ -1098,7 +1163,7 @@ button.icon-button svg {
 }
 
 .notice-actions button {
-  color: var(--accent);
+  color: var(--theme);
 }
 
 .composer {
@@ -1117,11 +1182,11 @@ button.icon-button svg {
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: #14111c;
+  background: var(--surface-sunken);
 }
 
 .composer-shell:focus-within {
-  border-color: #4d465c;
+  border-color: var(--border-strong);
 }
 
 .composer textarea {
@@ -1135,7 +1200,7 @@ button.icon-button svg {
   border-radius: 0;
   outline: 0;
   background: transparent;
-  color: #f4f1f7;
+  color: var(--text);
   line-height: 1.45;
 }
 
@@ -1155,11 +1220,11 @@ button.icon-button svg {
   padding: 0.45rem 0.55rem 0.45rem 0.7rem;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #14111c;
+  background: var(--surface-sunken);
 }
 
 .attachment-item[data-status="failed"] {
-  border-color: #7f1d1d;
+  border-color: var(--danger-border);
 }
 
 .attachment-name,
@@ -1174,7 +1239,7 @@ button.icon-button svg {
 
 .attachment-meta {
   grid-column: 1;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.7rem;
 }
 
@@ -1195,13 +1260,13 @@ button.icon-button svg {
   min-height: 30px;
   padding: 0.2rem 0.45rem;
   border: 0;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 select:focus,
 input:focus,
 button:focus-visible {
-  outline: 2px solid #e8b55a;
+  outline: 2px solid var(--theme-bright);
   outline-offset: 2px;
 }
 
@@ -1229,9 +1294,9 @@ button:focus-visible {
 }
 
 .full-access-shortcut[aria-pressed="true"] {
-  border-color: #ef4444;
-  background: rgb(127 29 29 / 34%);
-  color: #fecaca;
+  border-color: var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
 }
 
 .composer-actions {
@@ -1244,7 +1309,7 @@ button:focus-visible {
 
 .composer-hint {
   flex: none;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.78rem;
 }
 
@@ -1272,11 +1337,12 @@ button:focus-visible {
   width: 0.62rem;
   height: 0.62rem;
   border-radius: 2px;
-  background: #ef4444;
+  background: var(--danger);
 }
 
 .task-button[data-action="stop"] {
-  background: #2a1e1a;
+  border-color: var(--stop-border);
+  background: var(--stop-fill);
 }
 
 .task-button[data-action="stop"] .task-send-icon {
@@ -1300,7 +1366,7 @@ button:focus-visible {
   .timeline:hover,
   .composer textarea:hover,
   .composer textarea:focus {
-    scrollbar-color: #5c556c transparent;
+    scrollbar-color: var(--border-strong) transparent;
   }
 
   .session-list::-webkit-scrollbar,
@@ -1331,7 +1397,7 @@ button:focus-visible {
   .timeline:hover::-webkit-scrollbar-thumb,
   .composer textarea:hover::-webkit-scrollbar-thumb,
   .composer textarea:focus::-webkit-scrollbar-thumb {
-    background-color: #5c556c;
+    background-color: var(--border-strong);
   }
 }
 
@@ -1352,7 +1418,7 @@ button:focus-visible {
     pointer-events: auto;
     transform: translateX(-102%);
     transition: transform 180ms ease;
-    box-shadow: 16px 0 45px rgb(0 0 0 / 42%);
+    box-shadow: 16px 0 var(--shadow-md);
   }
 
   .app-view[data-mobile-sidebar-open="true"] .session-sidebar {
@@ -1384,7 +1450,7 @@ button:focus-visible {
     padding: 0;
     border: 0;
     border-radius: 0;
-    background: rgb(0 0 0 / 50%);
+    background: var(--scrim);
     opacity: 0;
     pointer-events: none;
     transition: opacity 180ms ease;
@@ -1448,10 +1514,10 @@ button:focus-visible {
   max-height: min(52dvh, 430px);
   overflow-y: auto;
   padding: 0.4rem;
-  border: 1px solid #4d465c;
+  border: 1px solid var(--border-strong);
   border-radius: 14px;
-  background: #252030;
-  box-shadow: 0 -18px 55px rgb(0 0 0 / 38%);
+  background: var(--surface-3);
+  box-shadow: 0 -18px var(--shadow-md);
 }
 
 .slash-heading {
@@ -1463,8 +1529,8 @@ button:focus-visible {
   align-items: center;
   gap: 0.65rem;
   padding: 0.55rem 0.65rem;
-  background: #252030;
-  color: var(--muted);
+  background: var(--surface-3);
+  color: var(--text-muted);
   font-size: 0.82rem;
 }
 
@@ -1473,7 +1539,7 @@ button:focus-visible {
   padding: 0.25rem 0.5rem;
   border: 0;
   background: transparent;
-  color: var(--accent);
+  color: var(--theme);
 }
 
 .slash-item {
@@ -1487,7 +1553,7 @@ button:focus-visible {
 }
 
 .slash-item + .slash-item {
-  border-top: 1px solid rgb(64 58 78 / 65%);
+  border-top: 1px solid var(--divider);
   border-radius: 0;
 }
 
@@ -1498,17 +1564,17 @@ button:focus-visible {
 
 .slash-item strong {
   margin-bottom: 0.18rem;
-  color: #f3f1f6;
+  color: var(--text);
 }
 
 .slash-item span {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.82rem;
   line-height: 1.35;
 }
 
 .slash-item[aria-selected="true"] {
-  background: rgb(243 197 107 / 14%);
+  background: var(--theme-wash);
 }
 
 .slash-item[data-danger="true"] strong {
@@ -1518,7 +1584,7 @@ button:focus-visible {
 .slash-empty {
   margin: 0;
   padding: 0.8rem;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .command-result {
@@ -1526,10 +1592,10 @@ button:focus-visible {
   max-width: min(92%, 680px);
   margin: 0 0 1rem;
   padding: 0.75rem 0.9rem;
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--theme);
   border-radius: 5px 12px 12px 5px;
-  background: rgb(243 197 107 / 10%);
-  color: #ead9b0;
+  background: var(--surface-2);
+  color: var(--text);
   font-size: 0.9rem;
 }
 
@@ -1548,13 +1614,12 @@ button:focus-visible {
 }
 
 /*
- * Shared layout stays aligned with Codex Remote. Colors above are Grok's
- * gold-on-purple-black identity. Product-specific selectors belong here.
+ * Shared layout stays aligned with Codex Remote. Product-specific selectors belong here.
  */
 .always-approve-shortcut[aria-pressed="true"] {
-  border-color: #ef4444;
-  background: rgb(127 29 29 / 34%);
-  color: #fecaca;
+  border-color: var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
 }
 
 .approval-card[data-kind="user_input"] {
@@ -1581,8 +1646,8 @@ html.pull-refresh-enabled {
   transform: translateX(-50%);
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: var(--panel-raised);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 40%);
+  background: var(--surface-3);
+  box-shadow: 0 6px var(--shadow-md);
   font-size: 0.82rem;
   pointer-events: none;
 }
