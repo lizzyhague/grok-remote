@@ -2051,37 +2051,34 @@ function appendToTimeline(node) {
 function addApproval(approval) {
   removeApproval(approval.approvalId);
   const card = document.createElement("section");
-  card.className = "approval-card";
+  card.className = "permission-card";
   card.dataset.approvalId = approval.approvalId;
   card.dataset.kind = approval.kind || "tool";
-  const reason = document.createElement("p");
-  reason.textContent = approval.reason || (approval.kind === "user_input"
-    ? "Grok 需要你回答一个问题。"
-    : "Grok 需要你批准一次操作。");
-  if (approval.kind === "user_input" && Array.isArray(approval.options) && approval.options.length) {
-    const actions = document.createElement("div");
-    actions.className = "approval-actions";
-    for (const option of approval.options) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = option.name;
-      button.addEventListener("click", () => void answerApproval(card, approval.approvalId, "approve_once", option.optionId));
-      actions.append(button);
-    }
-    card.append(reason, actions);
-  } else {
-    const decline = document.createElement("button");
-    decline.type = "button";
-    decline.className = "danger";
-    decline.textContent = "拒绝";
-    decline.addEventListener("click", () => void answerApproval(card, approval.approvalId, "decline", null));
-    const allow = document.createElement("button");
-    allow.type = "button";
-    allow.className = "primary";
-    allow.textContent = "本次允许";
-    allow.addEventListener("click", () => void answerApproval(card, approval.approvalId, "approve_once", null));
-    card.append(reason, decline, allow);
+  const title = document.createElement("p");
+  title.className = "permission-card-title";
+  title.textContent = "Grok 请求批准一次操作。";
+  const body = document.createElement("div");
+  body.className = "permission-card-body";
+  if (approval.reason) {
+    const detail = document.createElement("p");
+    detail.className = "permission-card-detail";
+    detail.textContent = approval.reason;
+    body.append(detail);
   }
+  const actions = document.createElement("div");
+  actions.className = "permission-card-actions";
+  const decline = document.createElement("button");
+  decline.type = "button";
+  decline.className = "danger";
+  decline.textContent = "拒绝";
+  decline.addEventListener("click", () => void answerApproval(card, approval.approvalId, "decline", null));
+  const allow = document.createElement("button");
+  allow.type = "button";
+  allow.className = "primary";
+  allow.textContent = "本次允许";
+  allow.addEventListener("click", () => void answerApproval(card, approval.approvalId, "approve_once", null));
+  actions.append(decline, allow);
+  card.append(title, body, actions);
   elements.approvalList.append(card);
 }
 

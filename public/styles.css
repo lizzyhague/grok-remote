@@ -312,16 +312,25 @@ button.small {
 }
 
 .sidebar-brand {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  min-width: 0;
+  gap: 0.5rem;
 }
 
-.sidebar-logo {
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
+.sidebar-brand-icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+
+.sidebar-brand strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
 }
 
 /* 侧栏图标按钮共用方形键面和 16px 线条图标。 */
@@ -1121,34 +1130,66 @@ button.icon-button svg {
 
 .approval-list,
 .notice {
-  padding: 0.7rem max(1rem, calc((100% - var(--max-width)) / 2));
-  border-top: 1px solid var(--border);
+  width: 100%;
 }
 
 .approval-list {
-  border-top-color: var(--theme);
-  background: var(--permission-fill);
+  max-width: calc(var(--max-width) + 2rem);
+  margin: 0 auto 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0 calc(1rem + var(--scrollbar-width, 0px));
+  max-height: 66dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-.approval-card {
+.permission-card {
+  flex: none;
   display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 0.6rem;
-  align-items: center;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-width: 100%;
+  min-width: 0;
+  max-height: 62dvh;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--theme);
+  border-radius: var(--radius-md);
+  background: var(--permission-fill);
+  color: var(--text);
+  font-size: 0.9rem;
 }
 
-.approval-card p {
+.permission-card-title {
   margin: 0;
+  font-weight: 600;
+}
+
+.permission-card-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.permission-card-detail {
+  margin: 0.3rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
   overflow-wrap: anywhere;
 }
 
-.approval-card small {
-  display: block;
-  margin-top: 0.25rem;
-  color: var(--text-muted);
+.permission-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
 }
 
 .notice {
+  padding: 0.7rem max(1rem, calc((100% - var(--max-width)) / 2));
+  border-top: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--warning);
   font-size: 0.9rem;
@@ -1487,14 +1528,6 @@ button:focus-visible {
     max-width: 94%;
   }
 
-  .approval-card {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .approval-card p {
-    grid-column: 1 / -1;
-  }
-
   .composer-hint {
     display: none;
   }
@@ -1631,16 +1664,6 @@ button:focus-visible {
   border-color: var(--danger);
   background: var(--danger-wash);
   color: var(--danger);
-}
-
-.approval-card[data-kind="user_input"] {
-  grid-template-columns: 1fr;
-}
-
-.approval-card[data-kind="user_input"] .approval-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
 }
 
 /* 下拉刷新只在手势进行时显示；由页面实现，避免原生手势重复触发。 */
