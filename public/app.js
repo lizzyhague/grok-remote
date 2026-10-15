@@ -204,7 +204,11 @@ elements.tokenForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (!window.grokRemoteReady) return;
   const token = elements.tokenInput.value.trim();
-  if (token) void connect(token);
+  if (!token) {
+    setLoginStatus("请输入访问令牌。", "error");
+    return;
+  }
+  void connect(token);
 });
 elements.projectSelect.addEventListener("change", () => {
   state.projectId = elements.projectSelect.value;
@@ -322,7 +326,7 @@ async function connect(token) {
     if (response.status === 401) {
       state.reconnectEnabled = false;
       showLogin();
-      setLoginStatus(token ? "访问令牌不正确。" : "请登录。", Boolean(token));
+      setLoginStatus(token ? "访问令牌有误，请重新输入。" : "请登录。", token ? "error" : null);
       return;
     }
     if (!response.ok) throw new Error("登录服务暂时不可用。");
@@ -336,13 +340,13 @@ async function connect(token) {
     }
   } catch (error) {
     if (attempt !== state.connectAttempt) return;
-    setLoginStatus(errorMessage(error), true);
+    setLoginStatus(errorMessage(error), "error");
     setConnectionStatus("disconnected", "已断开，正在重连");
     scheduleReconnect();
     return;
   }
   setConnectionStatus("connecting", "正在连接");
-  setLoginStatus("正在连接……");
+  setLoginStatus("正在连接……", "progress");
   closeSocket();
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${protocol}//${location.host}/ws`);
@@ -369,7 +373,7 @@ async function connect(token) {
         if (state.socket !== socket) return;
         closeSocket();
         setConnectionStatus("disconnected", "已断开，正在重连");
-        setLoginStatus(errorMessage(error), true);
+        setLoginStatus(errorMessage(error), "error");
         scheduleReconnect();
       }
     })();
@@ -387,7 +391,7 @@ async function connect(token) {
   });
   socket.addEventListener("error", () => {
     if (state.socket !== socket) return;
-    setLoginStatus("无法连接到主机。", true);
+    setLoginStatus("无法连接到主机。", "error");
   });
 }
 
@@ -2596,10 +2600,10 @@ function formatDate(value) {
   }).format(new Date(milliseconds));
 }
 
-/** 登录卡片的状态行：提示和进行中用次要文字色，出错才用危险色。 */
-function setLoginStatus(text, isError = false) {
+/** 登录卡片的状态行：普通提示、进行中和错误分别使用自己的颜色。 */
+function setLoginStatus(text, tone = null) {
   elements.loginStatus.textContent = text;
-  if (isError) elements.loginStatus.dataset.tone = "error";
+  if (tone) elements.loginStatus.dataset.tone = tone;
   else delete elements.loginStatus.dataset.tone;
 }
 
