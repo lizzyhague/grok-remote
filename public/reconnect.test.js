@@ -84,6 +84,7 @@ function harness() {
       });
     },
   });
+  context.setLoginStatus = (text) => { context.elements.loginStatus.textContent = text; };
   const names = [
     "connect", "closeSocket", "showApp", "resetCurrentSession", "setConnectionStatus",
     "restoreSessionAfterReconnect", "applyResumedSessionInPlace", "applyOpenedSession",

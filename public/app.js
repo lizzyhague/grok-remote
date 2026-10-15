@@ -322,7 +322,7 @@ async function connect(token) {
     if (response.status === 401) {
       state.reconnectEnabled = false;
       showLogin();
-      elements.loginStatus.textContent = token ? "访问令牌不正确。" : "请登录。";
+      setLoginStatus(token ? "访问令牌不正确。" : "请登录。", Boolean(token));
       return;
     }
     if (!response.ok) throw new Error("登录服务暂时不可用。");
@@ -336,13 +336,13 @@ async function connect(token) {
     }
   } catch (error) {
     if (attempt !== state.connectAttempt) return;
-    elements.loginStatus.textContent = errorMessage(error);
+    setLoginStatus(errorMessage(error), true);
     setConnectionStatus("disconnected", "已断开，正在重连");
     scheduleReconnect();
     return;
   }
   setConnectionStatus("connecting", "正在连接");
-  elements.loginStatus.textContent = "正在连接……";
+  setLoginStatus("正在连接……");
   closeSocket();
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${protocol}//${location.host}/ws`);
@@ -369,7 +369,7 @@ async function connect(token) {
         if (state.socket !== socket) return;
         closeSocket();
         setConnectionStatus("disconnected", "已断开，正在重连");
-        elements.loginStatus.textContent = errorMessage(error);
+        setLoginStatus(errorMessage(error), true);
         scheduleReconnect();
       }
     })();
@@ -387,7 +387,7 @@ async function connect(token) {
   });
   socket.addEventListener("error", () => {
     if (state.socket !== socket) return;
-    elements.loginStatus.textContent = "无法连接到主机。";
+    setLoginStatus("无法连接到主机。", true);
   });
 }
 
@@ -2338,7 +2338,7 @@ function showLogin() {
   removeStored(TOKEN_KEY);
   elements.appView.hidden = true;
   elements.loginView.hidden = false;
-  elements.loginStatus.textContent = "";
+  setLoginStatus("");
   elements.tokenInput.focus();
 }
 
@@ -2597,6 +2597,13 @@ function formatDate(value) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(milliseconds));
+}
+
+/** 登录卡片的状态行：提示和进行中用次要文字色，出错才用危险色。 */
+function setLoginStatus(text, isError = false) {
+  elements.loginStatus.textContent = text;
+  if (isError) elements.loginStatus.dataset.tone = "error";
+  else delete elements.loginStatus.dataset.tone;
 }
 
 function errorMessage(error) {

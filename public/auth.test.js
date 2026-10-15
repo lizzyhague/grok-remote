@@ -35,6 +35,7 @@ function harness(fetch, search = "") {
       addEventListener(name, listener) { this.listeners[name] = listener; }
     },
   });
+  context.setLoginStatus = (text) => { context.elements.loginStatus.textContent = text; };
   vm.runInContext(connect, context);
   return { context, sockets, actions };
 }
