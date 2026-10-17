@@ -36,7 +36,7 @@ test("recent sessions pin marked items above an untitled accent divider", () => 
   );
   assert.match(render, /session-mark-group/u);
   assert.match(render, /session-mark-divider/u);
-  assert.match(styles, /\.session-mark-divider\s*\{[^}]*border-top:\s*2px solid var\(--divider-accent\)/su);
+  assert.match(styles, /\.session-mark-divider\s*\{[^}]*border-top:\s*1\.5px solid var\(--divider-accent\)/su);
 });
 
 test("the line under the session title is the directory name", () => {
