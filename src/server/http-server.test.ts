@@ -351,6 +351,7 @@ const WEB_FILES = {
   "index.html": '<head><script type="module" src="/app.js"></script><link href="/styles.css" rel="stylesheet"></head>mark-A',
   "view.html": '<head><script type="module" src="/viewer.js"></script><link href="/viewer.css" rel="stylesheet"></head>',
   "app.js": 'import "./markdown.js"; window.__PWA_MARK__ = "A";',
+  "theme.js": "// theme",
   "confirm-dialog.js": "// confirm dialog",
   "markdown.js": "// dependency-A",
   "styles.css": "body { color: red }",

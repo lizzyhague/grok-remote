@@ -99,6 +99,9 @@ const elements = {
   renameSessionInput: byId("rename-session-input"),
   renameSessionStatus: byId("rename-session-status"),
   renameSessionCancelButton: byId("rename-session-cancel-button"),
+  appearanceSettingsButton: byId("appearance-settings-button"),
+  appearanceSettingsDialog: byId("appearance-settings-dialog"),
+  themeOptions: byId("theme-options"),
   collapseSidebarButton: byId("collapse-sidebar-button"),
   openSidebarButton: byId("open-sidebar-button"),
   sidebarBackdrop: byId("sidebar-backdrop"),
@@ -232,6 +235,16 @@ elements.trashSessionsButton.addEventListener("click", () => {
 });
 elements.selectSessionsButton.addEventListener("click", () => {
   selectionBar.setManualSelection(true);
+});
+elements.appearanceSettingsButton.addEventListener("click", () => {
+  renderThemeChoice();
+  elements.appearanceSettingsDialog.showModal();
+});
+elements.themeOptions.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-theme-choice]");
+  if (!button || !window.grokRemoteTheme) return;
+  window.grokRemoteTheme.set(button.dataset.themeChoice);
+  renderThemeChoice();
 });
 elements.collapseSidebarButton.addEventListener("click", closeSidebar);
 elements.openSidebarButton.addEventListener("click", openSidebar);
@@ -2278,6 +2291,15 @@ function syncSidebarState() {
 }
 
 window.addEventListener("resize", syncSidebarState);
+
+function renderThemeChoice() {
+  const theme = window.grokRemoteTheme;
+  if (!theme) return;
+  const current = theme.get();
+  for (const button of elements.themeOptions.querySelectorAll("[data-theme-choice]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.themeChoice === current));
+  }
+}
 
 function clearTimeline() {
   for (const stream of state.assistantStreams.values()) {

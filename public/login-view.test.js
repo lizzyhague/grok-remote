@@ -13,6 +13,13 @@ test("the login card keeps its existing visual logo alignment", () => {
   assert.match(styles, /\.login-card > :not\(\.login-brand\)\s*\{[^}]*margin-inline:\s*0\.75rem;/su);
 });
 
+test("page marks use the theme color instead of the standalone logo asset", () => {
+  assert.doesNotMatch(html, /class="(?:login-icon|sidebar-brand-icon)" src="\/logo\.svg"/u);
+  assert.match(html, /class="login-icon"[^>]*>[\s\S]*?fill="currentColor"/u);
+  assert.match(html, /class="sidebar-brand-icon"[^>]*>[\s\S]*?fill="currentColor"/u);
+  assert.match(styles, /\.login-icon\s*\{[^}]*color:\s*var\(--brand-mark\)/su);
+});
+
 test("the login label is compact and browser validation does not intercept submission", () => {
   assert.match(html, /访问令牌<span class="login-label-hint">（登录状态存于浏览器）<\/span>/u);
   assert.doesNotMatch(html, /class="login-hint"/u);
