@@ -10,6 +10,7 @@ function run({ stored = null, systemLight = false, storageThrows = false } = {})
   const mediaListeners = [];
   const windowListeners = new Map();
   const writes = [];
+  const header = { content: "#161413", setAttribute(name, value) { if (name === "content") this.content = value; } };
   const media = { matches: systemLight, addEventListener(name, listener) { if (name === "change") mediaListeners.push(listener); } };
   const localStorage = {
     getItem() { if (storageThrows) throw new Error("blocked"); return stored; },
@@ -18,11 +19,14 @@ function run({ stored = null, systemLight = false, storageThrows = false } = {})
   };
   const window = { matchMedia() { return media; }, addEventListener(name, listener) { windowListeners.set(name, listener); } };
   vm.runInNewContext(source, {
-    document: { documentElement: { setAttribute(name, value) { attributes.set(name, value); } } },
+    document: {
+      documentElement: { setAttribute(name, value) { attributes.set(name, value); } },
+      querySelector(selector) { return selector === 'meta[name="theme-color"]' ? header : null; },
+    },
     localStorage,
     window,
   });
-  return { attributes, media, mediaListeners, windowListeners, window, writes, setStored(value) { stored = value; } };
+  return { attributes, header, media, mediaListeners, windowListeners, window, writes, setStored(value) { stored = value; } };
 }
 
 test("defaults to the system theme and follows later system changes", () => {
@@ -52,4 +56,14 @@ test("storage changes synchronize tabs and blocked storage still allows switchin
   const blocked = run({ storageThrows: true });
   blocked.window.grokRemoteTheme.set("light");
   assert.equal(blocked.attributes.get("data-theme"), "light");
+});
+
+test("the PWA header color follows the applied theme", () => {
+  const page = run({ systemLight: true });
+  assert.equal(page.header.content, "#f8f4ea");
+  page.media.matches = false;
+  page.mediaListeners[0]();
+  assert.equal(page.header.content, "#161413");
+  page.window.grokRemoteTheme.set("light");
+  assert.equal(page.header.content, "#f8f4ea");
 });

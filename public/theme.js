@@ -1,7 +1,10 @@
 /* Resolve the theme before styles load to avoid a dark-color flash. */
 (function () {
   var KEY = "grok-remote.theme";
+  // Page background of each theme, so the PWA status bar and title bar match the page; kept in step with styles.css by page-colors.test.js.
+  var HEADER_COLORS = { dark: "#161413", light: "#f8f4ea" };
   var root = document.documentElement;
+  var header = document.querySelector('meta[name="theme-color"]');
   var media = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: light)") : null;
   var choice = read();
 
@@ -17,6 +20,7 @@
   function apply() {
     var theme = choice === "system" ? (media && media.matches ? "light" : "dark") : choice;
     root.setAttribute("data-theme", theme);
+    if (header) header.setAttribute("content", HEADER_COLORS[theme]);
   }
 
   apply();
