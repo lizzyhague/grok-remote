@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""把 Grok Remote 图标光栅化成 PNG。
+"""Rasterize the Grok Remote icon as PNG.
 
-只依赖标准库。图标由圆角矩形和圆构成，这两种形状到任意点的距离都有闭式解，
-所以边缘覆盖率是精确算出来的（有向距离场 + 解析抗锯齿），不是超采样估计的。
+Uses only the standard library. The icon consists of rounded rectangles and
+circles, whose signed distances have closed-form solutions, so edge coverage is
+computed analytically rather than estimated by supersampling.
 
-改了 public/icon.svg 之后重新运行本脚本即可重新生成 PNG：
+Run this script after changing public/icon.svg to regenerate the PNG files:
     python3 tools/render-icons.py
 """
 
@@ -18,7 +19,7 @@ MARK = (0xF3, 0xC5, 0x6B)
 CANVAS = 512.0
 CORNER = 112.0
 
-# 与 public/icon.svg 中的坐标一一对应，改图时两边要一起改。
+# These coordinates mirror public/icon.svg; update both together.
 BARS = [
     {"x0": 132.0, "y0": 149.0, "x1": 380.0, "y1": 195.0, "r": 23.0},
     {"x0": 226.0, "y0": 233.0, "x1": 380.0, "y1": 279.0, "r": 23.0},
@@ -28,7 +29,7 @@ DOT = {"cx": 168.0, "cy": 256.0, "r": 27.0}
 
 
 def sd_round_rect(px, py, x0, y0, x1, y1, r):
-    """到圆角矩形边界的有向距离，内为负。"""
+    """Return signed distance to a rounded rectangle, negative inside."""
     cx = min(max(px, x0 + r), x1 - r)
     cy = min(max(py, y0 + r), y1 - r)
     dx, dy = px - cx, py - cy
@@ -45,7 +46,7 @@ def sd_circle(px, py, cx, cy, r):
 
 
 def coverage(d, scale):
-    """解析抗锯齿：把有向距离换算成 0~1 的像素覆盖率。"""
+    """Convert signed distance to analytical pixel coverage from 0 to 1."""
     return min(max(0.5 - d * scale, 0.0), 1.0)
 
 

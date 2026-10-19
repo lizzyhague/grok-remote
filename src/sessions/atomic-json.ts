@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
-/** 私有运行数据只允许属主读写。 */
+/** Private runtime data is readable and writable only by its owner. */
 export const PRIVATE_FILE_MODE = 0o600;
 export const PRIVATE_DIRECTORY_MODE = 0o700;
 
@@ -10,7 +10,7 @@ export async function ensurePrivateDirectory(directory: string): Promise<void> {
   await mkdir(directory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
 }
 
-/** 写临时文件 → fsync → rename 覆盖。崩溃时要么是旧内容，要么是完整的新内容。 */
+/** Write a temporary file, fsync, then rename over the target so crashes leave old or complete new content. */
 export async function writeJsonAtomically(filePath: string, value: unknown): Promise<void> {
   const directory = path.dirname(filePath);
   await ensurePrivateDirectory(directory);
@@ -35,7 +35,7 @@ export async function writeJsonAtomically(filePath: string, value: unknown): Pro
   }
 }
 
-/** 文件不存在时返回 null；内容损坏时抛错，由调用方决定是否保持未就绪。 */
+/** Return null when absent; throw for corrupt content so the caller can decide whether to remain unready. */
 export async function readJsonIfPresent(filePath: string): Promise<unknown | null> {
   let source: string;
   try {

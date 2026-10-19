@@ -19,7 +19,7 @@ export type SessionSummary = {
 
 export type SessionPage = {
   sessions: SessionSummary[];
-  /** 「最近会话」里跨项目置顶；不算进分页。归档 / 回收站为空数组。 */
+  /** Cross-project pins in recent sessions, excluded from pagination. Empty for archive and trash views. */
   marked: SessionSummary[];
   nextCursor: string | null;
 };

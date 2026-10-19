@@ -630,7 +630,7 @@ export class TurnRuntime {
     if (worker.closing || worker.stopReason) {
       throw new TurnRuntimeError("session_stopping", "当前会话正在结束任务，请稍后再试。");
     }
-    // 落盘期间保留 Worker，不能让上一轮的清理关掉即将接收新消息的进程。
+    // Keep the worker while persisting so the previous turn's cleanup cannot close a process about to receive a message.
     worker.enqueuing += 1;
     try {
       await accept();
@@ -951,8 +951,8 @@ export class TurnRuntime {
   }
 
   async #emit(sessionId: string, event: BrowserTurnEvent): Promise<void> {
-    // 事件自带的 sessionId（例如 session.bound 上的原生 Grok id）优先，
-    // 不要用落盘目录 id 盖掉。
+    // Prefer an event's own sessionId, such as the native Grok id on session.bound;
+    // do not overwrite it with the persistence-directory id.
     const redacted = redactKnownAttachmentPathsDeep(event, this.#peekMappings(sessionId));
     const stored = await this.#store.appendEvent(sessionId, { sessionId, ...redacted });
     const payload = stored.event;

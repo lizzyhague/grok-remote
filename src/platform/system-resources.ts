@@ -25,8 +25,8 @@ export type AvailableMemoryOptions = {
 };
 
 /**
- * Linux 使用 MemAvailable，macOS 使用 vm_stat 估算包含可回收缓存的可用内存。
- * 平台专用读数失败时保留 os.freemem() 作为诊断值，但降级值不能用于拦截 Worker。
+ * Linux uses MemAvailable and macOS uses vm_stat to estimate memory including reclaimable caches.
+ * If the platform reading fails, retain os.freemem() for diagnostics but never use it to block a worker.
  */
 export async function readAvailableMemory(
   options: AvailableMemoryOptions = {},

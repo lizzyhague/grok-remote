@@ -9,7 +9,7 @@ export type StoredSessionMeta = {
   id: string;
   projectId: string;
   grokSessionId: string | null;
-  /** 只在 Grok Remote 新建会话时写入；缺失表示会话来自其他客户端。 */
+  /** Written only for sessions created by Grok Remote; absence means another client created the session. */
   createdByRemote?: true;
   permissionMode: PermissionMode;
   title: string;
@@ -105,13 +105,13 @@ export class RemoteSessionStore {
         const events = await readFile(path.join(fromDir, "events.jsonl"));
         await writeFile(path.join(toDir, "events.jsonl"), events);
       } catch {
-        // 还没有事件日志。
+        // No event log yet.
       }
       try {
         const seq = await readFile(path.join(fromDir, "seq"));
         await writeFile(path.join(toDir, "seq"), seq);
       } catch {
-        // 还没有序号。
+        // No sequence number yet.
       }
       const pendingSeq = this.#seqs.get(pendingId);
       if (pendingSeq !== undefined) {

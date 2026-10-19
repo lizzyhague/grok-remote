@@ -167,8 +167,8 @@ export class SessionService {
   }
 
   /**
-   * 侧栏改名不经过 open()，而 TurnRuntime.renameSession 要求 meta 已存在。
-   * 没在网页里打开过的磁盘会话要在这里补一份，字段与 open() 相同。
+   * Sidebar rename bypasses open(), while TurnRuntime.renameSession requires metadata. Create matching
+   * metadata here for disk sessions that have never been opened in the web app.
    */
   async ensureMeta(projectId: string, sessionId: string): Promise<void> {
     if (sessionId.startsWith(PENDING_SESSION_PREFIX)) {
@@ -565,7 +565,7 @@ export class SessionService {
       try {
         listener(event);
       } catch {
-        // 一个浏览器连接的通知失败不应中断已经完成的会话整理操作。
+        // A notification failure on one browser connection must not interrupt an already completed organization operation.
       }
     }
   }

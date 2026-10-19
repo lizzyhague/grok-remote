@@ -25,7 +25,7 @@ export function sessionsRoot(grokHome: string): string {
 }
 
 /**
- * 扫描 Grok 磁盘上属于某个项目 cwd 的会话。不启动 Worker。
+ * Scan Grok sessions on disk for a project cwd without starting a worker.
  */
 export class GrokSessionDisk {
   readonly #root: string;
@@ -112,7 +112,7 @@ export class GrokSessionDisk {
     try {
       return await readFile(path.join(directory, "rewind_points.jsonl"), "utf8");
     } catch {
-      // 旧会话或尚未产生可回退轮次的会话可能没有这个文件。
+      // Old sessions and sessions without a rewindable turn may lack this file.
       return null;
     }
   }
@@ -157,7 +157,7 @@ async function readGroupCwd(groupDir: string, groupName: string): Promise<string
     const trimmed = marked.trim();
     if (trimmed) return trimmed;
   } catch {
-    // 普通分组目录名就是 URL 编码后的 cwd。
+    // A regular group directory name is the URL-encoded cwd.
   }
   try {
     return decodeURIComponent(groupName);

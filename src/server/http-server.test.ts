@@ -18,7 +18,7 @@ import { PresenceTracker } from "./presence.ts";
 import { ProjectTaskLocks } from "./project-locks.ts";
 import type { OpenedSession, SessionPage } from "../sessions/service.ts";
 
-// 服务启动时会发布并回收前端快照；测试用 public/ 的临时副本，不动部署目录里的 .web-assets。
+// Service startup publishes and prunes frontend snapshots; tests use a temporary public/ copy and leave deployed .web-assets untouched.
 const WEB_ROOT = await mkdtemp(path.join(tmpdir(), "grok-http-public-"));
 after(() => rm(WEB_ROOT, { recursive: true, force: true }));
 await cp(fileURLToPath(new URL("../../public/", import.meta.url)), WEB_ROOT, {
@@ -391,7 +391,7 @@ test("a running server keeps its startup frontend until restart; old module URLs
   const view = await (await fetch(`${base}/view`)).text();
   assert.match(view, /\/assets\/[a-f0-9]{64}\/viewer\.js/u);
 
-  // 相当于在运行中的工作树里 git pull：旧进程继续提供启动时的一整套。
+  // Equivalent to git pull in a live worktree: the old process keeps serving its complete startup snapshot.
   await writeFile(path.join(webRoot, "markdown.js"), "// dependency-B");
   await writeFile(path.join(webRoot, "index.html"), WEB_FILES["index.html"].replace("mark-A", "mark-B"));
   await writeFile(path.join(webRoot, "sw.js"), "// sw-B");
@@ -429,7 +429,7 @@ test("repeated releases keep only the current and two previous snapshots on disk
     const app = scriptUrl(await (await fetch(base)).text());
     apps.push(app);
     await server.close();
-    // 发布先后由目录时间决定；这里拉开间隔，不依赖文件系统时间戳精度。
+    // Directory times determine publication order; space them apart without relying on filesystem timestamp precision.
     const at = new Date(Date.now() - (10 - release) * 60_000);
     await utimes(path.join(webRoot, ".web-assets", app.split("/")[2]!), at, at);
   }

@@ -11,12 +11,12 @@ export type BrowserSessionMutationAction =
   | "delete-trash";
 
 /**
- * WebSocket 帧上限。必须明显大于单条消息正文上限，否则超长正文会在 ws 层
- * 被直接关闭，浏览器拿不到可读的错误。
+ * WebSocket frame limit. It must be well above the message-body limit, or the ws layer closes
+ * oversized messages before the browser can receive a readable error.
  */
 export const MAX_BROWSER_MESSAGE_BYTES = 2_097_152;
 
-/** 单条发给 Grok 的消息正文上限（UTF-8 字节）。 */
+/** Maximum body size for one message sent to Grok, in UTF-8 bytes. */
 export const MAX_MESSAGE_TEXT_BYTES = 1_048_576;
 
 const MAX_MESSAGE_TEXT_LENGTH = 524_288;

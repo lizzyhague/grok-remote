@@ -6,8 +6,8 @@ export type PresenceListener = {
 };
 
 /**
- * 以「是否至少有一个有效前端连接」为准。最后一个连接断开后留宽限期，
- * 避免切 App、刷卡或短暂重载被当成无人在线。
+ * Presence means at least one valid frontend connection. Keep a grace period after the last
+ * connection closes so app switching, card switching, or a brief reload does not appear offline.
  */
 export class PresenceTracker {
   readonly #graceMs: number;

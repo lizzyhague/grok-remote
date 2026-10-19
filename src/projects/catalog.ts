@@ -27,7 +27,7 @@ type ResolvedRoot = ProjectRootConfig & {
 const SCAN_CACHE_TTL_MS = 1_000;
 
 /**
- * 扫描允许的项目根目录。浏览器只会看到项目 ID 和名称，不会提供任意路径。
+ * Scans allowed project roots. The browser sees only project IDs and names and cannot supply arbitrary paths.
  */
 export class ProjectCatalog {
   readonly #roots: ResolvedRoot[];
@@ -93,7 +93,7 @@ export class ProjectCatalog {
   }
 
   /**
-   * 每次开始工作前重新扫描并解析 ID，不直接接受浏览器传来的文件路径。
+   * Rescans and resolves the ID before each operation instead of accepting a file path from the browser.
    */
   async resolve(projectId: string): Promise<ResolvedProject> {
     const projects = await this.#scan();

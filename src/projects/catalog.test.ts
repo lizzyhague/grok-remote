@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { ProjectCatalog } from "./catalog.ts";
 
-test("只列出根目录下一层的普通项目文件夹", async (context) => {
+test("lists only regular project directories directly below each root", async (context) => {
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "grok-remote-projects-"));
   context.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
 
@@ -36,7 +36,7 @@ test("只列出根目录下一层的普通项目文件夹", async (context) => {
   );
 });
 
-test("从配置文件读取根目录", async (context) => {
+test("reads project roots from the configuration file", async (context) => {
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "grok-remote-config-"));
   context.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
 

@@ -73,7 +73,7 @@ const STATIC_FILES: Record<string, { file: string; contentType: string }> = {
   "/sw.js": { file: "sw.js", contentType: "text/javascript; charset=utf-8" },
 };
 
-/** 浏览器入口。它只绑定回环地址，公网/Tailscale 配置不属于这一层。 */
+/** Browser entry point. It binds only to loopback; public-network and Tailscale configuration belong elsewhere. */
 export class RemoteWebSocketServer {
   readonly #token: string;
   readonly #services: BrowserConnectionServices;
@@ -82,7 +82,7 @@ export class RemoteWebSocketServer {
   readonly #heartbeatIntervalMs: number;
   readonly #allowedOrigins: ReadonlySet<string>;
   readonly #webRoot: string;
-  /** listen() 时读入并固定；之后工作树的前端改动要重启才生效。 */
+  /** Loaded and fixed at listen(); later frontend worktree changes require a restart. */
   #webAssets: WebAssets | null = null;
   readonly #uploads: RemoteWebSocketServerOptions["uploads"];
   readonly #http: Server;
@@ -382,7 +382,7 @@ export class RemoteWebSocketServer {
     if (this.#listening) {
       throw new Error("WebSocket 服务已经启动。");
     }
-    // 前端在开始监听前一次读定：不完整的一套会让启动失败，而不是对外提供。
+    // Read the frontend once before listening; an incomplete set fails startup instead of being served.
     this.#webAssets ??= await WebAssets.load(
       this.#webRoot,
       new Set(Object.values(STATIC_FILES).map((asset) => asset.file)),

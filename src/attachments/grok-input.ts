@@ -13,8 +13,8 @@ export class GrokAttachmentError extends Error {
 }
 
 /**
- * 以前用 25 MiB 限制 ACP JSON/base64 请求体。现在请求不再携带文件字节，
- * 适配层累计字节上限已去掉；共享上传层仍限制单文件 25 MiB、单消息 100 个。
+ * The old 25 MiB limit applied to ACP JSON/base64 request bodies. Requests no longer carry file bytes,
+ * so the adapter has no aggregate byte limit; shared upload still limits files to 25 MiB and messages to 100 files.
  */
 export function validateGrokAttachments(attachments: ResolvedAttachment[]): void {
   const missing = attachments.find((attachment) => !attachment.path);

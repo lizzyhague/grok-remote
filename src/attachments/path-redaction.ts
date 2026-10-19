@@ -40,7 +40,7 @@ export function redactKnownAttachmentPaths(
   return result;
 }
 
-/** 递归替换对象里的已知附件路径；只改显示副本，不改原值。 */
+/** Recursively replaces known attachment paths in an object; changes only the display copy, not the original. */
 export function redactKnownAttachmentPathsDeep<T>(
   value: T,
   mappings: readonly AttachmentDisplayMapping[],
@@ -50,8 +50,9 @@ export function redactKnownAttachmentPathsDeep<T>(
 }
 
 /**
- * 流式输出时先扣住可能构成已知附件路径的尾部前缀，完整匹配后再发给页面。
- * flush 用于完成、失败或中断，避免丢字、重复或一直缓冲。
+ * During streaming, holds back trailing prefixes that may form a known attachment path and sends them
+ * to the page only after a complete match. `flush` handles completion, failure, or interruption to avoid
+ * lost text, duplicates, or indefinite buffering.
  */
 export class AttachmentPathStreamRedactor {
   #mappings: AttachmentDisplayMapping[];

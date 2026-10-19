@@ -21,8 +21,8 @@ type JsonObject = Record<string, unknown>;
 
 export type ParseUpdatesOptions = {
   /**
-   * Grok 当前有效分支上最后一个 prompt index。-1 表示有效分支还没有用户轮次；
-   * undefined 表示没有可靠的 rewind point 数据，此时只做重复 index 去重。
+   * Last prompt index on Grok's active branch. -1 means no user turn; undefined means rewind-point
+   * data is unreliable, so only duplicate-index removal applies.
    */
   activePromptIndex?: number | undefined;
   mappings?: readonly AttachmentDisplayMapping[];
@@ -33,8 +33,8 @@ export type ParseUpdatesOptions = {
 };
 
 /**
- * rewind_points.jsonl 会随 Grok 的当前分支一起回退，而 updates.jsonl 是追加日志。
- * 返回 undefined 时表示文件缺失或内容不可可靠解析，调用方应保留兼容回退行为。
+ * rewind_points.jsonl follows Grok's active branch while updates.jsonl is append-only. Undefined means
+ * the file is missing or unreliable, so callers retain compatibility fallback behavior.
  */
 export function parseActivePromptIndex(source: string | null): number | undefined {
   if (source === null) return undefined;
@@ -60,7 +60,7 @@ export function parseActivePromptIndex(source: string | null): number | undefine
 }
 
 /**
- * 把 Grok 的 updates.jsonl 收成浏览器时间线。思考内容和 ACP 内部字段不进入浏览器。
+ * Convert Grok's updates.jsonl into a browser timeline. Thinking content and ACP internals stay server-side.
  */
 export function parseUpdatesJsonl(
   source: string,
@@ -209,8 +209,8 @@ function applyUpdate(
     return;
   }
   if (kind === "agent_thought_chunk") {
-    // 思考内容不进入历史，但它表示助手开始了新的工作阶段。
-    // 下一段可见回复必须另起气泡，和实时事件流保持一致。
+    // Thinking is omitted from history but starts a new assistant work phase, so the next visible reply
+    // needs a new bubble to match the live event stream.
     turn.breakAssistantMessage = true;
     return;
   }
@@ -291,7 +291,7 @@ function appendMessage(
   messageId: string | null,
 ): void {
   if (!text) return;
-  // 连续同角色文字并进当前气泡；中间插入工具后另起一段。
+  // Merge consecutive text from one role into the current bubble; start a new segment after a tool.
   const last = turn.items.at(-1);
   if (
     last?.type === "message" &&

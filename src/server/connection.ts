@@ -158,7 +158,7 @@ export class BrowserConnection {
       this.#services.presence.remove();
       this.#countedPresence = false;
     }
-    // 正在接受消息的请求先完成登记，随后才交还控制权。
+    // Register an accepted message request before yielding control.
     void this.#queue.finally(() => this.#services.locks.disconnect(this.#id));
   }
 

@@ -37,7 +37,7 @@ export function resolveLayoutStatePath(
 }
 
 /**
- * 归档、回收站和钉住都是本应用本地标记。Grok 磁盘上的会话先不动。
+ * Archive, trash, and pin state are local app metadata and do not alter Grok sessions on disk.
  */
 export class SessionLayoutStore {
   readonly #filePath: string;

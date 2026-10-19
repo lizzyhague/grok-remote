@@ -7,7 +7,7 @@ type ProjectTaskLease = {
   reserved: boolean;
 };
 
-/** 锁跟随已接受的任务；页面断线或其他请求失败不能释放正在执行的任务。 */
+/** Locks follow accepted tasks; disconnects and unrelated request failures cannot release running work. */
 export class ProjectTaskLocks {
   readonly #leases = new Map<string, ProjectTaskLease>();
   readonly #unsubscribe: () => void;

@@ -41,7 +41,7 @@ export const spawnGrokAgent: SpawnAgent = (options) => {
         try {
           child.kill(signal);
         } catch {
-          // 进程已经不在了。
+          // The process has already exited.
         }
       }
     },

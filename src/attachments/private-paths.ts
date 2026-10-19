@@ -15,7 +15,7 @@ export type AttachmentPathRecord = {
   size: number;
 };
 
-/** 给 CLI 的内部说明：JSON 元数据，不拼接 shell。 */
+/** Internal instructions for the CLI: JSON metadata, never interpolated into a shell command. */
 export function formatPrivateAttachmentPathsBlock(
   attachments: readonly AttachmentPathRecord[],
 ): string {
@@ -36,7 +36,7 @@ export function isPrivateAttachmentPathsText(text: string): boolean {
     text.includes(PRIVATE_ATTACHMENT_PATHS_END);
 }
 
-/** 去掉完整的版本化路径块；用户正文里单独提到开始标记时，不会把后面全部截掉。 */
+/** Remove complete versioned path blocks without truncating user text that merely mentions the opening marker. */
 export function stripPrivateAttachmentPaths(text: string): string {
   let remaining = text;
   let result = "";

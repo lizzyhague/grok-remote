@@ -4,13 +4,13 @@
   background: var(--surface-page);
   color: var(--text);
 
-  /* 配色输入 */
+  /* Color inputs */
   --neutral: #0f0f10;
   --theme: #f3c56b;
   --theme-ink: #1c1408;
   --brand-mark: var(--theme);
 
-  /* 共用混合比例 */
+  /* Shared mixing ratios */
   --mix-tint: 3%;
   --mix-surface-sunken: 65%;
   --mix-surface-page: 100%;
@@ -36,7 +36,7 @@
   --mix-copy-success: 10%;
   --mix-divider-accent: 70%;
 
-  /* 推导角色 */
+  /* Derived roles */
   --tint: color-mix(in srgb, var(--theme) var(--mix-tint), var(--neutral));
   --surface-sunken: color-mix(in srgb, var(--tint) var(--mix-surface-sunken), black);
   --surface-page: color-mix(in srgb, var(--tint) var(--mix-surface-page), black);
@@ -67,7 +67,7 @@
   --shadow-md: 44px rgb(0 0 0 / 42%);
   --shadow-lg: 90px rgb(0 0 0 / 52%);
 
-  /* 选色时只切换这些值，规则保持不动。 */
+  /* Change only these values when switching palettes; keep the rules unchanged. */
   --bubble-ai: color-mix(in srgb, var(--theme) var(--mix-bubble-ai), var(--surface-2));
   --permission-fill: color-mix(in srgb, var(--theme) var(--mix-permission), var(--surface-2));
   --copy-success-fill: color-mix(in srgb, var(--theme) var(--mix-copy-success), var(--surface-2));
@@ -292,7 +292,7 @@ button.small {
   color: var(--danger) !important;
 }
 
-/* 登录状态行默认是次要文字；错误为红色，启动和连接过程为黄色。 */
+/* Login status uses secondary text by default; errors are red, while startup and connection progress are yellow. */
 #login-status:not([data-tone="error"]):not([data-tone="progress"]) {
   color: var(--text-muted) !important;
 }
@@ -398,7 +398,7 @@ button.small {
   letter-spacing: 0.01em;
 }
 
-/* 侧栏图标按钮共用方形键面和 16px 线条图标。 */
+/* Sidebar icon buttons share a square key surface and 16px line icons. */
 button.icon-button {
   width: 34px;
   min-width: 34px;
@@ -473,8 +473,8 @@ button.icon-button svg {
   font-size: 0.86rem;
 }
 
-/* 选中时不用浏览器自带的 2px 外圈，改用 1.5px 内框，保留原有选中色。
-   多出的 0.5px 用内阴影画，不占位置，内容不跳。 */
+/* Replace the browser's 2px outer focus ring with a 1.5px inset ring while retaining selection color.
+   Draw the extra 0.5px with an inset shadow so it takes no space and content does not jump. */
 .project-controls select:focus,
 .session-search input:focus {
   outline: 0;
@@ -1040,7 +1040,7 @@ button.icon-button svg {
   place-items: center;
   padding: 0;
   border-radius: 6px;
-  /* 按钮压在代码第一行上，底色必须不透明，阴影用来和下面的字拉开层次。 */
+  /* The button overlays the first code line, so its background must be opaque; shadow separates it from the text. */
   background: var(--surface-3);
   box-shadow: 0 2px var(--shadow-sm);
   color: var(--text-mid);
@@ -1748,7 +1748,7 @@ button:focus-visible {
   color: var(--danger);
 }
 
-/* 下拉刷新只在手势进行时显示；由页面实现，避免原生手势重复触发。 */
+/* Show pull-to-refresh only during the gesture; the page implements it to avoid duplicate native triggers. */
 html.pull-refresh-enabled {
   overscroll-behavior-y: none;
 }

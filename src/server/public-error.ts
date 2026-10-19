@@ -1,6 +1,6 @@
 /**
- * 发给浏览器的错误文字。本仓库自己写的提示会原样保留，但操作系统抛出的
- * 错误常常带着主机上的绝对路径，那些只应该留在服务端日志里。
+ * Error text sent to the browser. Messages authored here remain intact, while operating-system
+ * errors often contain absolute host paths that must remain only in server logs.
  */
 export function publicErrorMessage(error: unknown): string {
   if (!(error instanceof Error)) {

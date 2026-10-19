@@ -85,8 +85,8 @@ type Pending = {
 };
 
 /**
- * 新建 Grok 会话时追加到系统提示。只在 session/new 发送；
- * session/resume 不再带，以免 Worker 按需重启时重复追加。
+ * Appended to the system prompt for new Grok sessions. Sent only with session/new;
+ * session/resume omits it so on-demand worker restarts do not append it again.
  */
 export const GROK_REMOTE_SESSION_RULES = [
   "Grok Remote 是一个由浏览器 PWA 和本机后端组成的远程使用平台；它通过 Grok ACP 将 Grok 接到网页，让用户从手机或电脑使用。你正在通过 Grok Remote 与用户对话。用户通过网页发送消息，看到的是 Grok Remote 的浏览器界面，不是 Grok TUI 的终端界面。",
@@ -95,9 +95,9 @@ export const GROK_REMOTE_SESSION_RULES = [
 ].join("\n\n");
 
 /**
- * ACP JSON-RPC 客户端。不向 Grok 声明 fs / terminal 能力。
+ * ACP JSON-RPC client. Does not advertise fs or terminal capabilities to Grok.
  *
- * 不用 node:readline 拆行：它把 U+2028、U+2029 也当换行，而它们在 JSON 字符串里是合法字符。
+ * Avoid node:readline because it treats U+2028 and U+2029 as line breaks, though both are valid in JSON strings.
  */
 export class AcpClient extends EventEmitter {
   readonly #proc: ChildProcessWithoutNullStreams;
@@ -236,7 +236,7 @@ export class AcpClient extends EventEmitter {
     try {
       await this.request("session/close", { sessionId });
     } catch {
-      // close 能力因版本而异；失败时由进程组清理兜底。
+      // Close capability varies by version; process-group cleanup is the fallback.
     }
   }
 

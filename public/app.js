@@ -52,7 +52,7 @@ const SESSION_SELECTION_VIEWS = Object.freeze({
     },
   ] },
 });
-/** 输入框失焦后稍等再点亮 rewind / always-approve，避免同一下既失焦又点到确认。 */
+/** Delay enabling rewind and always-approve after blur so one tap cannot both blur and confirm. */
 const COMPOSER_CONFIRM_UNLOCK_MS = 300;
 
 function measureScrollbarWidth() {
@@ -367,8 +367,8 @@ async function connect(token) {
   socket.addEventListener("open", () => {
     if (state.socket !== socket) return;
     void (async () => {
-      // 会话是绑在连接上的（服务端 #requireSession），重连换了连接就等于没打开
-      // 会话：发消息和申请上传票据都会被拒。所以这里要把断线前那个会话接回来。
+      // Sessions belong to connections (#requireSession server-side). Reconnecting creates a new connection with
+      // no open session, so restore the previous session before messages or upload tickets can be accepted.
       const previousSessionId = state.currentSessionId;
       try {
         showApp();
@@ -562,8 +562,8 @@ async function resumeSession(sessionId) {
 }
 
 /**
- * 重连后自动回到断线前的会话，不必再去列表里点一次。会话可能在断线期间被
- * 归档或删掉了，那就退回列表并说明原因，而不是把错误顶在界面上不动。
+ * Return automatically to the pre-disconnect session. If it was archived or deleted while disconnected,
+ * return to the list and explain why.
  */
 async function restoreSessionAfterReconnect(sessionId) {
   const socket = state.socket;
@@ -573,16 +573,15 @@ async function restoreSessionAfterReconnect(sessionId) {
       sessionId,
     });
     if (state.socket !== socket) return;
-    // 屏幕上已经铺着这个会话，就别再重铺一遍：clearTimeline() 加整段重建会让
-    // 对话肉眼可见地翻一次。断线期间漏掉的用 events.resume 按 seq 补进来就够了，
-    // 服务端的事件是落盘按 seq 读的，不是内存里的短缓冲。
+    // The session is already rendered. Rebuilding it would visibly flash the conversation; events.resume can
+    // restore missed events by persisted sequence number.
     if (opened?.session?.id === state.currentSessionId) {
       applyResumedSessionInPlace(opened);
     } else {
       applyOpenedSession(opened);
     }
   } catch (error) {
-    // 连接恢复途中再次断线时保留草稿，交给下一次重连继续恢复。
+    // Preserve the draft if recovery disconnects again so the next reconnect can continue.
     if (state.socket !== socket || socket.readyState !== WebSocket.OPEN) throw error;
     resetCurrentSession();
     showEmpty("选择以前的会话，或者新建一个会话。");
@@ -592,8 +591,8 @@ async function restoreSessionAfterReconnect(sessionId) {
 }
 
 /**
- * 重连接回同一个会话时用的轻量版 applyOpenedSession：不动时间线、不动附件草稿，
- * 只把跟着连接走的那些状态接回来，再补上断线期间错过的事件。
+ * Lightweight applyOpenedSession for reconnecting to the same session. Preserve the timeline and attachment
+ * draft, restore connection-bound state, and replay events missed while disconnected.
  */
 function applyResumedSessionInPlace(opened) {
   const socket = state.socket;
@@ -618,7 +617,7 @@ function applyResumedSessionInPlace(opened) {
   void retryOutboxForCurrentSession();
 }
 
-/** 补回已经发生的内容时一次显示，保留阅读位置，不重播逐字动画和滚动。 */
+/** Render recovered content at once, preserving reading position without replaying typing or scrolling. */
 function replayServerEvents(events) {
   if (events.length === 0) return;
   const stickToBottom = isNearBottom();
@@ -714,7 +713,8 @@ function setNavigationBusy(busy) {
 }
 
 function renderSessionList() {
-  // 刷新开始时列表会暂时清空；等这一轮落地后再对账，不能把仍存在的选择提前丢掉。
+  // The list is temporarily cleared when refresh begins. Reconcile after this refresh settles instead of
+  // prematurely discarding a selection that still exists.
   if (!state.sessionLoading) selectionBar.reconcile(visibleSessionSummaries());
   elements.sessionViewTitle.parentElement.hidden = selectionBar.isSelecting();
   elements.sessionList.replaceChildren();
@@ -894,17 +894,14 @@ function sessionMarkIcon(pinned) {
   svg.setAttribute("aria-hidden", "true");
   svg.classList.add("session-mark-icon");
   /*
-   * 图钉的形状取自 pocket-ai 里标记「已留材料」的那个 📌。画成 SVG 才能跟着
-   * currentColor 走、拿到每个项目自己的主色——emoji 那身红是系统字体给的，改不掉。
+   * The pin shape comes from pocket-ai's retained-material marker. SVG lets it follow currentColor and each
+   * project's accent; the system emoji font's red cannot be recolored.
    *
-   * 两个状态换的是两副钉身，不是把同一副转个角度：
-   *   没钉住 = 斜着、空心描边（--muted），像还捏在手里；
-   *   钉住   = 正立、钉身填实（--accent），像已经扎正扎进去了。
-   * 旋转正是上一版的毛病：转完钉头会跑到 viewBox 外面被切掉，而且每条边都变成
-   * 斜切，小尺寸下发糊。两副横平竖直的路径才锐利。
+   * The two states use separate pin bodies rather than rotating one shape: unpinned is diagonal and outlined
+   * with --muted; pinned is upright and filled with --accent. Axis-aligned paths stay sharp at small sizes and
+   * avoid clipping the pin head outside the viewBox.
    *
-   * viewBox 用 24：路径按 Tabler 的 24 网格画，硬换算到 16 只会得到一串读不动
-   * 的小数。渲染尺寸由 CSS 定在 17px，两者不冲突。
+   * The viewBox uses Tabler's 24-unit grid; CSS independently renders it at 17px.
    */
   const LOOSE = {
     body: "M15 4.5l-4 4l-4 1.5l-1.5 1.5l7 7l1.5-1.5l1.5-4l4-4",
@@ -944,7 +941,7 @@ async function toggleSessionMark(session) {
   }
 }
 
-/** 弹窗开着时会话可能被切走，所以认下打开那一刻的 ID，别跟着当前会话漂。 */
+/** Pin the session ID when the dialog opens because the active session may change underneath it. */
 let renamingSessionId = null;
 let renamingInitialTitle = "";
 
@@ -1045,8 +1042,8 @@ function visibleSessionSummaries() {
 }
 
 /**
- * 批量整理只作用于当前项目：跨项目钉住的会话出现在「最近」顶部，但不能混进
- * 以当前项目为目标的一次请求；尚未发出的本地草稿也没有后端会话可整理。
+ * Bulk organization applies only to the current project. Cross-project pinned sessions and unsent local drafts
+ * cannot join a request targeting the current project's backend sessions.
  */
 function sessionSelectable(session) {
   return session.state !== "active" && session.pending !== true &&
@@ -1283,9 +1280,8 @@ async function sendMessage(text, attachments) {
 }
 
 /*
- * 挑文件不看连接通不通：手机弹出系统选择器时网页会被切到后台，回来时连接往往
- * 已经断了、还在重连。这里要是拦一下，刚选的图就被无声丢掉了——连没连上交给
- * startUpload() 去分流，断着就先排队。
+ * Accept file selection regardless of connection state. Mobile pickers often background the page and break the
+ * connection; startUpload() queues the file until reconnection instead of silently losing it.
  */
 async function uploadFiles(files) {
   if (!state.currentSessionId || !state.projectId || files.length === 0) return;
@@ -1308,7 +1304,7 @@ async function uploadFile(file) {
     declaredMime: file.type || "application/octet-stream",
     status: "requesting",
     statusText: "正在申请上传",
-    // 排队和重试都要拿它再传一次，所以文件本身留在草稿上。
+    // Keep the file on the draft because queueing and retries need to upload it again.
     file,
     projectId: state.projectId,
     sessionId: state.currentSessionId,
@@ -1320,8 +1316,8 @@ async function uploadFile(file) {
 }
 
 /**
- * 一个草稿的上传全过程，可以重复进入：断线时排队，重连接回会话后由
- * flushQueuedAttachments() 再叫一次；失败后也可以由「重试」再叫一次。
+ * Reentrant upload lifecycle for one draft: queue while disconnected, resume through flushQueuedAttachments(),
+ * and retry after failure.
  */
 async function startUpload(draft) {
   if (!draft.file || state.attachmentUploads.has(draft.clientId)) return;
@@ -1331,7 +1327,7 @@ async function startUpload(draft) {
     updateControls();
     return;
   }
-  // 排队期间会话可能已经换了。附件是绑在会话上的，不能改投到新会话去。
+  // The session may change while queued; attachments remain bound to their original session.
   if (draft.projectId !== state.projectId || draft.sessionId !== state.currentSessionId) {
     Object.assign(draft, {
       status: "failed",
@@ -1382,7 +1378,7 @@ async function startUpload(draft) {
     });
     persistCurrentAttachmentDraft();
   } catch (error) {
-    // 断线导致的失败不算失败，回到队列里等下一次接回会话。
+    // Treat disconnects as queued work and wait for the next session recovery.
     if ((state.socket !== socket || !state.connectionReady ||
         state.socket?.readyState !== WebSocket.OPEN) && error?.name !== "AbortError") {
       Object.assign(draft, { status: "queued", statusText: "等待重新连接" });
@@ -1401,14 +1397,14 @@ async function startUpload(draft) {
   }
 }
 
-/** 接回会话后，把排队的附件接着传完。 */
+/** Resume queued attachment uploads after restoring the session. */
 async function flushQueuedAttachments() {
   const queued = state.pendingAttachments.filter((draft) => draft.status === "queued");
   if (queued.length === 0) return;
   await Promise.all(queued.map((draft) => startUpload(draft)));
 }
 
-/** 还没传完的附件（排队中或正在传）。有这些就先别发送，否则它们会被落下。 */
+/** Attachments still queued or uploading; delay sending so they are not omitted. */
 function hasUnfinishedUploads() {
   return state.attachmentUploads.size > 0 ||
     state.pendingAttachments.some((draft) => draft.status === "queued");
@@ -1431,7 +1427,7 @@ function renderAttachmentList() {
       : attachment.statusText || "处理中";
     const actions = document.createElement("div");
     actions.className = "attachment-actions";
-    // 传失败但文件还在手上的，给一次重来的机会；不想要就用旁边的「移除」。
+    // Offer retry while the file remains available; the adjacent action removes it.
     if (attachment.status === "failed" && attachment.file) {
       const retry = document.createElement("button");
       retry.className = "quiet attachment-retry";
@@ -2368,7 +2364,7 @@ function showLogin() {
 function showApp() {
   elements.loginView.hidden = true;
   elements.appView.hidden = false;
-  // 重连时已有会话、附件和阅读位置；显示界面不能顺带清空它们。
+  // Reconnection already has a session, attachments, and reading position; showing the UI must preserve them.
   if (!state.currentSessionId) resetCurrentSession();
 }
 
@@ -2496,8 +2492,8 @@ function attachmentDraftKey(sessionId = state.currentSessionId) {
 function loadAttachmentDraftForCurrentSession() {
   const key = attachmentDraftKey();
   const drafts = loadAttachmentDrafts();
-  // localStorage 里只有传完的那些。还没传完的（断线时排队的、失败待重试的）只在
-  // 内存里，重连接回同一个会话要留着它们；换会话则连同正在传的一起丢掉。
+  // localStorage contains only completed uploads. Keep queued and retryable in-memory uploads when reconnecting
+  // to the same session; changing sessions discards them along with active uploads.
   const carried = state.pendingAttachments.filter((attachment) =>
     attachment.status !== "ready" && attachment.sessionId === state.currentSessionId
   );
@@ -2522,7 +2518,7 @@ function persistCurrentAttachmentDraft() {
   const key = attachmentDraftKey();
   if (!key) return;
   const drafts = loadAttachmentDrafts();
-  // file / projectId / sessionId 只服务于排队和重试，不进 localStorage。
+  // file, projectId, and sessionId support queueing and retries only and never enter localStorage.
   const ready = readyAttachments().map(({
     clientId: _clientId,
     status: _status,
@@ -2589,8 +2585,8 @@ function migrateLocalSessionState(previousSessionId, nextSessionId) {
     stateSet(ATTACHMENT_DRAFTS_KEY, JSON.stringify(drafts));
   }
 
-  // 存起来的那些跟着换了 key，内存里还没传完的（排队、待重试）也得跟着换绑，
-  // 否则它们会被当成「另一个会话的附件」丢掉或判成会话已切换。
+  // Stored uploads follow the new key; rebind queued and retryable in-memory uploads too so they are not
+  // discarded as attachments from another session.
   for (const attachment of state.pendingAttachments) {
     if (attachment.sessionId === previousSessionId) attachment.sessionId = nextSessionId;
   }
@@ -2622,7 +2618,7 @@ function formatDate(value) {
   }).format(new Date(milliseconds));
 }
 
-/** 登录卡片的状态行：普通提示、进行中和错误分别使用自己的颜色。 */
+/** Status line for the login card; regular notices, progress, and errors each use their own color. */
 function setLoginStatus(text, tone = null) {
   elements.loginStatus.textContent = text;
   if (tone) elements.loginStatus.dataset.tone = tone;

@@ -17,8 +17,8 @@ const INDEX_VERSION = 1;
 const SESSION_ID_PATTERN = /^[\w.-]+$/u;
 
 /**
- * 会话附件显示索引：只保存 id / 原名 / 真实路径，给页面转换用。
- * 不进入浏览器 DTO、公开事件或通用日志。
+ * Session attachment display index: stores only id, original name, and real path for page conversion.
+ * It never enters browser DTOs, public events, or general logs.
  */
 export class AttachmentDisplayIndex {
   readonly #directory: string;
@@ -52,7 +52,7 @@ export class AttachmentDisplayIndex {
     return flatten(await this.#load(sessionId));
   }
 
-  /** 已加载会话的同步视图；未加载时返回空数组。 */
+  /** Synchronous view of a loaded session; returns an empty array when unloaded. */
   peek(sessionId: string): IndexedAttachment[] {
     return flatten(this.#loaded.get(sessionId));
   }
