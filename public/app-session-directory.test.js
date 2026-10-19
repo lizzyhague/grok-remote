@@ -4,6 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 import { createSelectionBar } from "./selection-bar.js";
+import { t } from "./i18n.test-support.js";
 
 const source = await readFile(new URL("./app.js", import.meta.url), "utf8");
 
@@ -89,7 +90,7 @@ function harness({ view = "active", selectionMode = false } = {}) {
     TEMPORARY_ERROR: { tone: "error" },
     TEMPORARY_WARNING: { tone: "warning" },
     TEMPORARY_INFO: { tone: "info" },
-    SESSION_ORGANIZING_BUSY_MESSAGE: "这个项目有正在执行的任务，暂时不能整理会话。",
+    t,
     state: {
       projectId: "project-one",
       projects: [
@@ -143,16 +144,16 @@ function harness({ view = "active", selectionMode = false } = {}) {
 
   const views = {
     active: { actions: [
-      { id: "archive", label: "归档", resultLabel: "归档", icon: "archive" },
-      { id: "trash-active", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
+      { id: "archive", labelKey: "selection.archive", doneKey: "selection.doneArchive", icon: "archive" },
+      { id: "trash-active", labelKey: "common.delete", doneKey: "selection.doneTrash", icon: "delete", danger: true },
     ] },
     archived: { actions: [
-      { id: "unarchive", label: "取消归档", resultLabel: "取消归档", icon: "unarchive" },
-      { id: "trash-archived", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
+      { id: "unarchive", labelKey: "selection.unarchive", doneKey: "selection.doneUnarchive", icon: "unarchive" },
+      { id: "trash-archived", labelKey: "common.delete", doneKey: "selection.doneTrash", icon: "delete", danger: true },
     ] },
     trash: { actions: [
-      { id: "restore-trash", label: "恢复", resultLabel: "恢复", icon: "restore" },
-      { id: "delete-trash", label: "永久删除", resultLabel: "永久删除", icon: "purge", danger: true, permanent: true },
+      { id: "restore-trash", labelKey: "selection.restore", doneKey: "selection.doneRestore", icon: "restore" },
+      { id: "delete-trash", labelKey: "selection.purge", doneKey: "selection.donePurge", icon: "purge", danger: true, permanent: true },
     ] },
   };
   const selectionBar = createSelectionBar({
@@ -292,8 +293,8 @@ test("busy states disable the bar and checkboxes with the backend reason", () =>
   elements.messageInput.value = "";
   const context = vm.createContext({
     WebSocket: { OPEN: 1 },
+    t,
     MAX_MESSAGE_ATTACHMENTS: 100,
-    SESSION_ORGANIZING_BUSY_MESSAGE: "这个项目有正在执行的任务，暂时不能整理会话。",
     state: {
       socket: { readyState: 1 }, connectionReady: true, currentSessionId: "session",
       projectId: "project-one", sessions: [summary("a")], markedSessions: [],

@@ -28,6 +28,7 @@ function harness() {
     location: { protocol: "https:", host: "example.test", search: "" },
     MAX_MESSAGE_ATTACHMENTS: 100, ATTACHMENT_DRAFTS_KEY: "drafts",
     TEMPORARY_ERROR: { lifetime: "temporary", tone: "error" },
+    setKeyedText(element, key) { element.textContent = key; },
     state: {
       connectAttempt: 0, socket: null, connectionReady: false, replayingEvents: false,
       currentSessionId: "session-1", projectId: "project-1", lastSeq: 7,

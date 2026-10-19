@@ -4,6 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 import { createNoticeController } from "./notice.js";
+import { t } from "./i18n.test-support.js";
 
 const source = await readFile(new URL("./app.js", import.meta.url), "utf8");
 
@@ -56,7 +57,7 @@ function approvalHarness() {
   const approvalList = new FakeTarget();
   approvalList.children.push({ approvalId: "approval-1" });
   const context = vm.createContext({
-    WAITING_APPROVAL_NOTICE: "正在等待审批。",
+    t,
     TEMPORARY_WARNING: { lifetime: "temporary", tone: "warning" },
     NOTICE_DURATION_MS: { undo: 10_000 },
     state: { currentSessionId: "session-1" },
@@ -90,7 +91,7 @@ test("a dismissed approval notice stays hidden until approvals are cleared", () 
 test("waiting status uses the same approval key as approval synchronization", () => {
   const shown = [];
   const context = vm.createContext({
-    WAITING_APPROVAL_NOTICE: "正在等待审批。",
+    t,
     state: {
       currentSessionId: "session-1",
       lastSeq: 0,
@@ -143,6 +144,7 @@ function outboxHarness(request) {
     showNotice: (text, options) => shown.push({ text, options }),
     deliveryNoticeKey: (id) => `delivery:${id}`,
     errorMessage: (error) => error.message,
+    t,
   });
   vm.runInContext(
     section("async function retryOutboxForCurrentSession()", "function createClientMessageId("),

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import "./i18n.test-support.js";
 import { createConfirmDialog } from "./confirm-dialog.js";
 
 class FakeClassList {

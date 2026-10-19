@@ -15,40 +15,24 @@ const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_MESSAGE_ATTACHMENTS = 100;
 const MAX_COMMAND_OUTPUT = 100_000;
 const TOOL_TITLE_LIMIT = 48;
-const WAITING_APPROVAL_NOTICE = "正在等待审批。";
 const TEMPORARY_INFO = Object.freeze({ lifetime: "temporary", tone: "info" });
 const TEMPORARY_WARNING = Object.freeze({ lifetime: "temporary", tone: "warning" });
 const TEMPORARY_ERROR = Object.freeze({ lifetime: "temporary", tone: "error" });
-const SESSION_ORGANIZING_BUSY_MESSAGE = "这个项目有正在执行的任务，暂时不能整理会话。";
 const SESSION_SELECTION_VIEWS = Object.freeze({
   active: { actions: [
-    { id: "archive", label: "归档", resultLabel: "归档", icon: "archive" },
-    {
-      id: "trash-active",
-      label: "删除",
-      resultLabel: "删除",
-      icon: "delete",
-      danger: true,
-      retention: true,
-    },
+    { id: "archive", labelKey: "selection.archive", doneKey: "selection.doneArchive", icon: "archive" },
+    { id: "trash-active", labelKey: "common.delete", doneKey: "selection.doneTrash", icon: "delete", danger: true },
   ] },
   archived: { actions: [
-    { id: "unarchive", label: "取消归档", resultLabel: "取消归档", icon: "unarchive" },
-    {
-      id: "trash-archived",
-      label: "删除",
-      resultLabel: "删除",
-      icon: "delete",
-      danger: true,
-      retention: true,
-    },
+    { id: "unarchive", labelKey: "selection.unarchive", doneKey: "selection.doneUnarchive", icon: "unarchive" },
+    { id: "trash-archived", labelKey: "common.delete", doneKey: "selection.doneTrash", icon: "delete", danger: true },
   ] },
   trash: { actions: [
-    { id: "restore-trash", label: "恢复", resultLabel: "恢复", icon: "restore" },
+    { id: "restore-trash", labelKey: "selection.restore", doneKey: "selection.doneRestore", icon: "restore" },
     {
       id: "delete-trash",
-      label: "永久删除",
-      resultLabel: "永久删除",
+      labelKey: "selection.purge",
+      doneKey: "selection.donePurge",
       icon: "purge",
       danger: true,
       permanent: true,
@@ -188,9 +172,6 @@ const selectionBar = createSelectionBar({
   container: elements.selectionHeading,
   views: SESSION_SELECTION_VIEWS,
   initialView: state.sessionView,
-  noun: "会话",
-  untitledLabel: "新会话",
-  permanentDeleteDetail: "会话原文会一并删除",
   getId: (session) => session.id,
   getTitle: (session) => session.title,
   isSelectable: sessionSelectable,
@@ -207,6 +188,7 @@ const selectionBar = createSelectionBar({
   onBusyChange: setNavigationBusy,
   onBack: () => setSessionView("active"),
 });
+labelScriptedText();
 
 elements.tokenForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -256,7 +238,10 @@ elements.languageOptions.addEventListener("click", (event) => {
   const button = event.target.closest("[data-language-choice]");
   if (button && window.grokRemoteI18n) window.grokRemoteI18n.set(button.dataset.languageChoice);
 });
-window.addEventListener("grok-remote-languagechange", renderLanguageChoice);
+window.addEventListener("grok-remote-languagechange", () => {
+  renderLanguageChoice();
+  relabelInterface();
+});
 elements.collapseSidebarButton.addEventListener("click", closeSidebar);
 elements.openSidebarButton.addEventListener("click", openSidebar);
 elements.sidebarBackdrop.addEventListener("click", closeSidebar);
@@ -363,11 +348,11 @@ async function connect(token) {
   } catch (error) {
     if (attempt !== state.connectAttempt) return;
     setLoginStatus(errorMessage(error), "error");
-    setConnectionStatus("disconnected", "已断开，正在重连");
+    setConnectionStatus("disconnected", "connection.reconnecting");
     scheduleReconnect();
     return;
   }
-  setConnectionStatus("connecting", "正在连接");
+  setConnectionStatus("connecting", "connection.connecting");
   setLoginStatus(t("login.connecting"), "progress");
   closeSocket();
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -388,13 +373,13 @@ async function connect(token) {
         if (previousSessionId) await restoreSessionAfterReconnect(previousSessionId);
         if (state.socket !== socket || socket.readyState !== WebSocket.OPEN) return;
         state.connectionReady = true;
-        setConnectionStatus("connected", "已连接");
+        setConnectionStatus("connected", "connection.connected");
         updateControls();
         await flushQueuedAttachments();
       } catch (error) {
         if (state.socket !== socket) return;
         closeSocket();
-        setConnectionStatus("disconnected", "已断开，正在重连");
+        setConnectionStatus("disconnected", "connection.reconnecting");
         setLoginStatus(errorMessage(error), "error");
         scheduleReconnect();
       }
@@ -406,8 +391,8 @@ async function connect(token) {
   socket.addEventListener("close", () => {
     if (state.socket !== socket) return;
     state.connectionReady = false;
-    rejectPending(new Error("连接已断开。"));
-    setConnectionStatus("disconnected", "已断开，正在重连");
+    rejectPending(new Error(t("connection.lost")));
+    setConnectionStatus("disconnected", "connection.reconnecting");
     updateControls();
     scheduleReconnect();
   });
@@ -432,7 +417,7 @@ function handleSocketMessage(source) {
   if (!pending) return;
   state.pending.delete(message.requestId);
   if (message.ok === false || message.type === "error") {
-    const error = new Error(message.error?.message || "请求失败。");
+    const error = new Error(message.error?.message || t("request.failed"));
     error.code = message.error?.code;
     pending.reject(error);
     return;
@@ -443,13 +428,13 @@ function handleSocketMessage(source) {
 function request(type, payload = {}) {
   return new Promise((resolve, reject) => {
     if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
-      reject(new Error("尚未连接到主机。"));
+      reject(new Error(t("connection.notConnected")));
       return;
     }
     const requestId = `r${++state.requestId}`;
     const timer = window.setTimeout(() => {
       state.pending.delete(requestId);
-      const error = new Error("请求超时。");
+      const error = new Error(t("request.timeout"));
       error.code = "request_timeout";
       reject(error);
       try { state.socket?.close(); } catch {}
@@ -553,7 +538,7 @@ async function startSession() {
 async function resumeSession(sessionId) {
   const selected = findSessionSummary(sessionId);
   if (selected && !directoryAvailable(selected.projectId)) {
-    showAlert("这个会话的工作目录已经不在了。", "无法打开会话");
+    showAlert(t("session.directoryGone"), t("session.cannotOpen"));
     return;
   }
   if (selected?.projectId && selected.projectId !== state.projectId) {
@@ -593,8 +578,8 @@ async function restoreSessionAfterReconnect(sessionId) {
     // Preserve the draft if recovery disconnects again so the next reconnect can continue.
     if (state.socket !== socket || socket.readyState !== WebSocket.OPEN) throw error;
     resetCurrentSession();
-    showEmpty("选择以前的会话，或者新建一个会话。");
-    showNotice(`${errorMessage(error)}断线前的会话没能接回来。`, TEMPORARY_ERROR);
+    showEmpty("empty.chooseSession");
+    showNotice(t("reconnect.restoreFailed", { message: errorMessage(error) }), TEMPORARY_ERROR);
     return;
   }
 }
@@ -664,7 +649,7 @@ async function reloadAfterRewind(sessionId, promptText) {
       elements.messageInput.value = promptText;
       resizeComposer();
     }
-    showNotice("已回退最近一轮；文件改动没有撤销。", TEMPORARY_INFO);
+    showNotice(t("rewind.done"), TEMPORARY_INFO);
   } catch (error) {
     showNotice(errorMessage(error), TEMPORARY_ERROR);
   }
@@ -703,11 +688,7 @@ function setSessionView(view, load = true) {
   state.sessions = [];
   state.markedSessions = [];
   state.sessionCursor = null;
-  elements.sessionViewTitle.textContent = view === "active"
-    ? "最近会话"
-    : view === "archived"
-    ? "已归档"
-    : "回收站";
+  renderSessionViewTitle();
   const activeView = view === "active";
   elements.sessionViewBackButton.hidden = activeView;
   elements.archivedSessionsButton.hidden = !activeView;
@@ -719,6 +700,14 @@ function setSessionView(view, load = true) {
 function setNavigationBusy(busy) {
   state.navigationBusy = busy;
   updateControls();
+}
+
+function renderSessionViewTitle() {
+  elements.sessionViewTitle.textContent = t(state.sessionView === "active"
+    ? "sidebar.recent"
+    : state.sessionView === "archived"
+    ? "sidebar.archived"
+    : "sidebar.trash");
 }
 
 function renderSessionList() {
@@ -740,7 +729,7 @@ function renderSessionList() {
   if (state.sessionLoading && listEmpty) {
     const loading = document.createElement("p");
     loading.className = "session-list-empty";
-    loading.textContent = "正在加载会话……";
+    loading.textContent = t("sessions.loading");
     elements.sessionList.append(loading);
   } else if (state.sessions.length === 0) {
     if (marked.length === 0) {
@@ -748,12 +737,12 @@ function renderSessionList() {
       empty.className = "session-list-empty";
       const searching = Boolean(elements.sessionSearchInput.value.trim());
       empty.textContent = searching
-        ? "没有找到匹配的会话。"
+        ? t("sessions.noMatch")
         : state.sessionView === "active"
-        ? "这个项目还没有会话。"
+        ? t("sessions.noneInProject")
         : state.sessionView === "archived"
-        ? "还没有归档会话。"
-        : "回收站是空的。";
+        ? t("sessions.noneArchived")
+        : t("sessions.trashEmpty");
       elements.sessionList.append(empty);
     }
   } else {
@@ -781,13 +770,13 @@ function createSessionItem(session) {
     item.dataset.selectable = String(selectable);
     checkbox.checked = selectable && selectionBar.isSelected(session.id);
     checkbox.disabled = !selectable;
-    checkbox.setAttribute("aria-label", `选择 ${session.title || "新会话"}`);
+    checkbox.setAttribute("aria-label", t("sessions.selectOne", { title: session.title || t("session.untitled") }));
     if (session.state === "active") {
-      label.title = SESSION_ORGANIZING_BUSY_MESSAGE;
+      label.title = t("session.organizingBusy");
     } else if (session.pending === true) {
-      label.title = "草稿会话还没有发出，暂时不能整理。";
+      label.title = t("sessions.pendingCannotOrganize");
     } else if (!selectable) {
-      label.title = "这个会话属于其他项目，切换到它的项目后再整理。";
+      label.title = t("sessions.otherProject");
     }
     checkbox.addEventListener("change", () => {
       selectionBar.toggle(session.id);
@@ -821,7 +810,7 @@ function createSessionItem(session) {
 function appendSessionText(container, session) {
   const title = document.createElement("span");
   title.className = "session-item-title";
-  title.textContent = session.title || "新会话";
+  title.textContent = session.title || t("session.untitled");
   const preview = document.createElement("span");
   preview.className = "session-item-preview";
   preview.textContent = session.projectName ||
@@ -835,7 +824,7 @@ function appendSessionText(container, session) {
   } else {
     const date = formatDate(session.updatedAt || session.createdAt);
     meta.textContent = session.state === "active"
-      ? `运行中${date ? ` · ${date}` : ""}`
+      ? (date ? t("session.runningAt", { date }) : t("session.running"))
       : date;
   }
   container.append(title, preview, meta);
@@ -845,8 +834,8 @@ function createSessionRename(session) {
   const button = document.createElement("button");
   button.className = "session-rename-trigger quiet";
   button.type = "button";
-  button.setAttribute("aria-label", `重命名 ${session.title || "新会话"}`);
-  button.title = "重命名";
+  button.setAttribute("aria-label", t("sessions.renameOne", { title: session.title || t("session.untitled") }));
+  button.title = t("rename.title");
   button.append(sessionRenameIcon());
   button.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -863,10 +852,10 @@ function createSessionMark(session) {
   button.setAttribute(
     "aria-label",
     session.marked
-      ? `取消钉住 ${session.title || "新会话"}`
-      : `钉住 ${session.title || "新会话"}`,
+      ? t("sessions.unpinOne", { title: session.title || t("session.untitled") })
+      : t("sessions.pinOne", { title: session.title || t("session.untitled") }),
   );
-  button.title = session.marked ? "取消钉住" : "钉住后会一直显示在最近会话顶部";
+  button.title = session.marked ? t("sessions.unpin") : t("sessions.pinHint");
   button.append(sessionMarkIcon(Boolean(session.marked)));
   button.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -957,7 +946,7 @@ let renamingInitialTitle = "";
 function openRenameDialog(session) {
   if (!session || session.pending === true) return;
   renamingSessionId = session.id;
-  renamingInitialTitle = session.title || "新会话";
+  renamingInitialTitle = session.title || t("session.untitled");
   elements.renameSessionInput.value = renamingInitialTitle;
   elements.renameSessionStatus.textContent = "";
   setRenameDialogBusy(false);
@@ -974,7 +963,7 @@ async function submitRename() {
   }
   const title = elements.renameSessionInput.value.trim();
   if (!title) {
-    elements.renameSessionStatus.textContent = "会话名称不能为空。";
+    elements.renameSessionStatus.textContent = t("rename.empty");
     elements.renameSessionInput.focus();
     return;
   }
@@ -984,7 +973,7 @@ async function submitRename() {
   }
   const projectId = session.projectId || state.projectId;
   if (!projectId) {
-    elements.renameSessionStatus.textContent = "找不到这个会话所属的项目。";
+    elements.renameSessionStatus.textContent = t("rename.projectMissing");
     return;
   }
   try {
@@ -1026,7 +1015,7 @@ function directoryAvailable(projectId) {
   return Boolean(projectId) && state.projects.some((project) => project.id === projectId);
 }
 
-function showAlert(message, title = "提示") {
+function showAlert(message, title = t("alert.title")) {
   elements.appAlertTitle.textContent = title;
   elements.appAlertMessage.textContent = message;
   if (!elements.appAlertDialog.open) elements.appAlertDialog.showModal();
@@ -1062,7 +1051,7 @@ function sessionSelectable(session) {
 async function executeSessionSelectionAction(action, sessionIds) {
   const projectId = state.projectId;
   if (!projectId || sessionIds.length === 0) {
-    throw new Error("当前没有可以整理的会话。");
+    throw new Error(t("sessions.nothingToOrganize"));
   }
   const result = await request("sessions.mutate", { projectId, sessionIds, action });
   const succeeded = Array.isArray(result?.succeeded) ? result.succeeded : [];
@@ -1072,13 +1061,13 @@ async function executeSessionSelectionAction(action, sessionIds) {
     (action === "archive" || action.startsWith("trash-") || action === "delete-trash")
   ) {
     resetCurrentSession();
-    showEmpty("选择以前的会话，或者新建一个会话。");
+    showEmpty("empty.chooseSession");
   }
   return {
     succeeded,
     failed: failed.map((failure) => ({
       id: failure?.sessionId,
-      reason: failure?.message || "操作失败。",
+      reason: failure?.message || t("selection.failed"),
     })),
   };
 }
@@ -1123,7 +1112,7 @@ function keepOpenPendingSession() {
   if (state.sessions.some((session) => session.id === state.currentSessionId)) return;
   upsertSession({
     id: state.currentSessionId,
-    title: state.sessionTitle || "新会话",
+    title: state.sessionTitle || t("session.untitled"),
     preview: "",
     createdAt: Math.floor(Date.now() / 1_000),
     updatedAt: Math.floor(Date.now() / 1_000),
@@ -1147,7 +1136,7 @@ function resetCurrentSession() {
   renderAttachmentList();
   updateConversationTitle();
   clearTimeline();
-  showEmpty("选择以前的会话，或者新建一个会话。");
+  showEmpty("empty.chooseSession");
   elements.approvalList.replaceChildren();
   updateControls();
 }
@@ -1158,7 +1147,7 @@ function renderHistory(tasks, hasOlder) {
   elements.historyLoader.hidden = !hasOlder;
   const rendered = renderTasks(tasks);
   if (rendered === 0 && !hasOlder) {
-    showEmpty("这是一个新会话，可以发送第一条消息了。");
+    showEmpty("empty.newSession");
   } else {
     scrollToBottom(true);
   }
@@ -1191,7 +1180,7 @@ async function loadOlderHistory() {
   const oldTop = elements.timeline.scrollTop;
   const existingNodes = new Set(elements.timeline.children);
   elements.loadOlderButton.disabled = true;
-  elements.loadOlderButton.textContent = "加载中……";
+  elements.loadOlderButton.textContent = t("timeline.loadingOlder");
   try {
     const data = await request("history.older");
     if (sessionId !== state.currentSessionId) return;
@@ -1209,7 +1198,7 @@ async function loadOlderHistory() {
     showNotice(errorMessage(error), TEMPORARY_ERROR);
   } finally {
     elements.loadOlderButton.disabled = false;
-    elements.loadOlderButton.textContent = "加载更早";
+    elements.loadOlderButton.textContent = t("timeline.loadOlder");
   }
 }
 
@@ -1263,7 +1252,7 @@ async function sendMessage(text, attachments) {
     const uncertainDelivery = error?.code === "request_timeout" ||
       state.socket?.readyState !== WebSocket.OPEN;
     if (uncertainDelivery) {
-      showNotice("连接在确认消息前中断。消息 ID 已保留；重新打开这个会话后会安全重试。", {
+      showNotice(t("delivery.uncertain"), {
         lifetime: "state",
         tone: "warning",
         key: deliveryNoticeKey(clientMessageId),
@@ -1283,7 +1272,7 @@ async function sendMessage(text, attachments) {
     elements.messageInput.value = currentDraft.trim() ? `${text}\n\n${currentDraft}` : text;
     resizeComposer();
     state.slashMenu?.handleInput();
-    showNotice(`${errorMessage(error)}未发送的正文和附件已恢复。`, TEMPORARY_ERROR);
+    showNotice(t("delivery.restored", { message: errorMessage(error) }), TEMPORARY_ERROR);
   }
   updateControls();
 }
@@ -1296,11 +1285,11 @@ async function uploadFiles(files) {
   if (!state.currentSessionId || !state.projectId || files.length === 0) return;
   const available = MAX_MESSAGE_ATTACHMENTS - state.pendingAttachments.length;
   if (available <= 0) {
-    showNotice(`一条消息最多附加 ${MAX_MESSAGE_ATTACHMENTS} 个文件。`, TEMPORARY_WARNING);
+    showNotice(t("attachment.limit", { count: MAX_MESSAGE_ATTACHMENTS }), TEMPORARY_WARNING);
     return;
   }
   if (files.length > available) {
-    showNotice(`一条消息最多附加 ${MAX_MESSAGE_ATTACHMENTS} 个文件，只处理了前 ${available} 个。`, TEMPORARY_WARNING);
+    showNotice(t("attachment.limitPartial", { count: MAX_MESSAGE_ATTACHMENTS, available }), TEMPORARY_WARNING);
   }
   await Promise.all(files.slice(0, available).map((file) => uploadFile(file)));
 }
@@ -1308,11 +1297,12 @@ async function uploadFiles(files) {
 async function uploadFile(file) {
   const draft = {
     clientId: createClientMessageId(),
-    originalName: file.name || "未命名文件",
+    originalName: file.name || t("attachment.untitled"),
     size: file.size,
     declaredMime: file.type || "application/octet-stream",
     status: "requesting",
-    statusText: "正在申请上传",
+    statusKey: "attachment.preparing",
+    statusText: "",
     // Keep the file on the draft because queueing and retries need to upload it again.
     file,
     projectId: state.projectId,
@@ -1331,7 +1321,7 @@ async function uploadFile(file) {
 async function startUpload(draft) {
   if (!draft.file || state.attachmentUploads.has(draft.clientId)) return;
   if (state.socket?.readyState !== WebSocket.OPEN || !state.connectionReady) {
-    Object.assign(draft, { status: "queued", statusText: "等待重新连接" });
+    Object.assign(draft, { status: "queued", statusKey: "attachment.waitingReconnect", statusText: "" });
     renderAttachmentList();
     updateControls();
     return;
@@ -1340,7 +1330,8 @@ async function startUpload(draft) {
   if (draft.projectId !== state.projectId || draft.sessionId !== state.currentSessionId) {
     Object.assign(draft, {
       status: "failed",
-      statusText: "会话已切换，请重新选择文件",
+      statusKey: "attachment.sessionChangedShort",
+      statusText: "",
       file: null,
     });
     renderAttachmentList();
@@ -1352,7 +1343,7 @@ async function startUpload(draft) {
   const socket = state.socket;
   const controller = new AbortController();
   state.attachmentUploads.set(clientId, controller);
-  Object.assign(draft, { status: "requesting", statusText: "正在申请上传" });
+  Object.assign(draft, { status: "requesting", statusKey: "attachment.preparing", statusText: "" });
   renderAttachmentList();
   updateControls();
   try {
@@ -1362,9 +1353,9 @@ async function startUpload(draft) {
       expectedSize: file.size,
     });
     if (state.projectId !== draft.projectId || state.currentSessionId !== draft.sessionId) {
-      throw new Error("上传期间切换了会话，请重新选择文件。");
+      throw new Error(t("attachment.sessionChanged"));
     }
-    Object.assign(draft, { status: "uploading", statusText: "正在上传" });
+    Object.assign(draft, { status: "uploading", statusKey: "attachment.uploading", statusText: "" });
     renderAttachmentList();
     const response = await fetch("/attachments/upload", {
       method: "POST",
@@ -1374,15 +1365,16 @@ async function startUpload(draft) {
     });
     const body = await response.json().catch(() => null);
     if (!response.ok) {
-      const error = new Error(body?.error?.message || "附件上传失败。");
+      const error = new Error(body?.error?.message || t("attachment.failed"));
       error.code = body?.error?.code;
       throw error;
     }
-    if (!body?.attachment?.id) throw new Error("上传服务没有返回附件 ID。");
+    if (!body?.attachment?.id) throw new Error(t("attachment.noId"));
     Object.assign(draft, body.attachment, {
       clientId,
       status: "ready",
-      statusText: "上传完成",
+      statusKey: "attachment.uploaded",
+      statusText: "",
       file: null,
     });
     persistCurrentAttachmentDraft();
@@ -1390,11 +1382,12 @@ async function startUpload(draft) {
     // Treat disconnects as queued work and wait for the next session recovery.
     if ((state.socket !== socket || !state.connectionReady ||
         state.socket?.readyState !== WebSocket.OPEN) && error?.name !== "AbortError") {
-      Object.assign(draft, { status: "queued", statusText: "等待重新连接" });
+      Object.assign(draft, { status: "queued", statusKey: "attachment.waitingReconnect", statusText: "" });
     } else {
       Object.assign(draft, {
         status: "failed",
-        statusText: error?.name === "AbortError" ? "已取消" : errorMessage(error),
+        statusKey: error?.name === "AbortError" ? "attachment.cancelled" : "",
+        statusText: error?.name === "AbortError" ? "" : errorMessage(error),
       });
     }
   } finally {
@@ -1428,12 +1421,12 @@ function renderAttachmentList() {
     item.dataset.status = attachment.status;
     const name = document.createElement("span");
     name.className = "attachment-name";
-    name.textContent = attachment.originalName || "未命名文件";
+    name.textContent = attachment.originalName || t("attachment.untitled");
     const meta = document.createElement("small");
     meta.className = "attachment-meta";
     meta.textContent = attachment.status === "ready"
-      ? `${attachment.id} · 上传完成`
-      : attachment.statusText || "处理中";
+      ? `${attachment.id} · ${t("attachment.uploaded")}`
+      : attachment.statusText || t(attachment.statusKey || "attachment.processing");
     const actions = document.createElement("div");
     actions.className = "attachment-actions";
     // Offer retry while the file remains available; the adjacent action removes it.
@@ -1441,16 +1434,18 @@ function renderAttachmentList() {
       const retry = document.createElement("button");
       retry.className = "quiet attachment-retry";
       retry.type = "button";
-      retry.textContent = "重试";
-      retry.setAttribute("aria-label", `重新上传附件 ${attachment.originalName || "未命名文件"}`);
+      retry.textContent = t("common.retry");
+      retry.setAttribute("aria-label", t("attachment.retryOne", {
+        name: attachment.originalName || t("attachment.untitled"),
+      }));
       retry.addEventListener("click", () => void startUpload(attachment));
       actions.append(retry);
     }
     const remove = document.createElement("button");
     remove.className = "quiet attachment-remove";
     remove.type = "button";
-    remove.textContent = "移除";
-    remove.setAttribute("aria-label", `移除附件 ${attachment.originalName || "未命名文件"}`);
+    remove.textContent = t("attachment.remove");
+    remove.setAttribute("aria-label", t("attachment.removeOne", { name: attachment.originalName || t("attachment.untitled") }));
     remove.addEventListener("click", () => removeAttachment(attachment));
     actions.append(remove);
     item.append(name, meta, actions);
@@ -1496,7 +1491,7 @@ function mergeAttachments(first, second) {
 function displayTextWithAttachments(text, attachments) {
   if (attachments.length === 0) return text;
   const lines = attachments.map((attachment) =>
-    `[附件：${attachment.originalName} · ${attachment.id}]`);
+    t("attachment.display", { name: attachment.originalName, id: attachment.id }));
   return text ? `${text}\n\n${lines.join("\n")}` : lines.join("\n");
 }
 
@@ -1582,7 +1577,7 @@ function handleServerEvent(event) {
       sealAssistantStreams();
       hideThinking();
       startCommand(event);
-      showThinking("正在执行工具");
+      showThinking("thinking.tool");
       break;
     case "command.output.delta":
       appendCommandOutput(event.itemId, event.text ?? "");
@@ -1612,7 +1607,7 @@ function handleServerEvent(event) {
       }
       if (event.status === "waiting_for_permission") {
         hideThinking();
-        showNotice(WAITING_APPROVAL_NOTICE, {
+        showNotice(t("approval.waiting"), {
           lifetime: "state",
           tone: "warning",
           key: approvalNoticeKey(),
@@ -1623,7 +1618,7 @@ function handleServerEvent(event) {
         hideThinking();
         syncApprovalNotice();
         if (event.status !== "completed") {
-          addTaskNote(event.reason || (event.status === "interrupted" ? "本轮已中止。" : "本轮失败。"));
+          addTaskNote(event.reason || t(event.status === "interrupted" ? "task.interrupted" : "task.failed"));
         }
         for (const stream of state.assistantStreams.values()) {
           if (!stream.markdownRendered && stream.target) completeAssistant(stream.itemId, stream.target);
@@ -1919,21 +1914,21 @@ function renderToolEntry(command) {
   if (command.kind === "search") {
     appendToolTextBlock(
       command.pane,
-      "关键词",
-      command.query || (isRunningTool(command) ? "等待关键词……" : "没有可用的关键词。"),
+      t("tool.query"),
+      command.query || (isRunningTool(command) ? t("tool.waitingQuery") : t("tool.noQuery")),
       "command-input",
     );
-    appendResourceBlock(command, "结果", "没有可用的结果地址。");
+    appendResourceBlock(command, t("tool.results"), t("tool.noResults"));
     return;
   }
   if (command.kind === "fetch") {
-    appendResourceBlock(command, "地址", "没有可用的资源地址。");
+    appendResourceBlock(command, t("tool.address"), t("tool.noAddress"));
     return;
   }
-  appendToolTextBlock(command.pane, "输入", command.input || "没有输入。", "command-input");
+  appendToolTextBlock(command.pane, t("tool.input"), command.input || t("tool.noInput"), "command-input");
   command.outputElement = appendToolTextBlock(
     command.pane,
-    "输出",
+    t("tool.output"),
     toolOutputText(command),
     "command-output",
   );
@@ -1963,7 +1958,7 @@ function appendResourceBlock(command, label, emptyText) {
   if (!command.resources.length) {
     const empty = document.createElement("p");
     empty.className = "command-resource-empty";
-    empty.textContent = isRunningTool(command) ? "等待地址……" : emptyText;
+    empty.textContent = isRunningTool(command) ? t("tool.waitingAddress") : emptyText;
     block.append(empty);
   } else {
     const list = document.createElement("ul");
@@ -2016,9 +2011,9 @@ function isRunningTool(command) {
 
 function toolOutputText(command) {
   if (command.output) {
-    return `${command.truncated ? "（较早输出已省略）\n" : ""}${command.output}`;
+    return `${command.truncated ? `${t("tool.truncated")}\n` : ""}${command.output}`;
   }
-  return isRunningTool(command) ? "等待输出……" : "没有输出。";
+  return isRunningTool(command) ? t("tool.waitingOutput") : t("tool.noOutput");
 }
 
 function normalizeToolKind(kind) {
@@ -2039,8 +2034,8 @@ function toolDisplayMode(kind) {
 }
 
 function clipTitle(title) {
-  const normalized = String(title || "工具").replace(/\s+/g, " ").trim();
-  const value = normalized || "工具";
+  const normalized = String(title || t("tool.defaultTitle")).replace(/\s+/g, " ").trim();
+  const value = normalized || t("tool.defaultTitle");
   if (value.length <= TOOL_TITLE_LIMIT) return value;
   return `${value.slice(0, TOOL_TITLE_LIMIT - 1)}…`;
 }
@@ -2049,7 +2044,7 @@ function addFileChange(event) {
   hideEmpty();
   const note = document.createElement("p");
   note.className = "file-change";
-  note.textContent = `文件改动完成：${event.changedFiles ?? 0} 个文件。`;
+  note.textContent = t("fileChange.completed", { count: event.changedFiles ?? 0 });
   appendToTimeline(note);
   scrollToBottom(false);
 }
@@ -2078,7 +2073,7 @@ function addApproval(approval) {
   card.dataset.kind = approval.kind || "tool";
   const title = document.createElement("p");
   title.className = "permission-card-title";
-  title.textContent = "Grok 请求批准一次操作。";
+  title.textContent = t("approval.request");
   const body = document.createElement("div");
   body.className = "permission-card-body";
   if (approval.reason) {
@@ -2092,12 +2087,12 @@ function addApproval(approval) {
   const decline = document.createElement("button");
   decline.type = "button";
   decline.className = "danger";
-  decline.textContent = "拒绝";
+  decline.textContent = t("approval.decline");
   decline.addEventListener("click", () => void answerApproval(card, approval.approvalId, "decline", null));
   const allow = document.createElement("button");
   allow.type = "button";
   allow.className = "primary";
-  allow.textContent = "本次允许";
+  allow.textContent = t("approval.allowOnce");
   allow.addEventListener("click", () => void answerApproval(card, approval.approvalId, "approve_once", null));
   actions.append(decline, allow);
   card.append(title, body, actions);
@@ -2126,7 +2121,7 @@ function handleCommandResult(result) {
   if (typeof result?.enabled === "boolean") {
     state.alwaysApprove = result.enabled;
     updateControls();
-    showNotice(result.enabled ? "已打开 always-approve。" : "已关闭 always-approve。", TEMPORARY_INFO);
+    showNotice(t(result.enabled ? "alwaysApprove.enabled" : "alwaysApprove.disabled"), TEMPORARY_INFO);
     return;
   }
   if (result?.kind === "info") {
@@ -2185,11 +2180,11 @@ function updateControls() {
   elements.selectSessionsButton.disabled = !connected || navigationLocked ||
     organizingBusy || selectableCount === 0;
   elements.selectSessionsButton.title = organizingBusy
-    ? SESSION_ORGANIZING_BUSY_MESSAGE
-    : "选择";
+    ? t("session.organizingBusy")
+    : t("sidebar.select");
   selectionBar.setDisabled(
     !connected || navigationBusy || organizingBusy,
-    organizingBusy ? SESSION_ORGANIZING_BUSY_MESSAGE : "",
+    organizingBusy ? t("session.organizingBusy") : "",
   );
   elements.loadMoreSessionsButton.disabled = !connected || navigationBusy;
   elements.sessionViewBackButton.disabled = !connected || navigationBusy;
@@ -2207,31 +2202,31 @@ function updateControls() {
     for (const checkbox of item.querySelectorAll('input[type="checkbox"]')) {
       checkbox.disabled = !connected || navigationBusy || organizingBusy ||
         itemIsActive || !itemIsSelectable;
-      checkbox.title = organizingBusy ? SESSION_ORGANIZING_BUSY_MESSAGE : "";
+      checkbox.title = organizingBusy ? t("session.organizingBusy") : "";
     }
   }
   elements.messageInput.disabled = !connected || !hasSession;
   elements.messageInput.placeholder = !hasSession
-    ? "先选择或新建会话"
+    ? t("composer.placeholderNoSession")
     : state.taskRunning
-    ? "可以先写，当前回复结束后再发送"
+    ? t("composer.placeholderRunning")
     : state.busy
-    ? "快捷操作执行中，可以继续写"
-    : "在浏览器里写好，再发送给 Grok";
+    ? t("composer.placeholderBusy")
+    : t("composer.placeholder");
   elements.attachmentButton.disabled = !connected || !hasSession || navigationBusy ||
     state.pendingAttachments.length >= MAX_MESSAGE_ATTACHMENTS;
   elements.commandMenuButton.disabled = !connected || !hasSession || state.taskRunning ||
     state.busy || hasText || hasAttachments;
   elements.rewindShortcut.disabled = !connected || !hasSession || state.taskRunning || state.busy || confirmLocked;
-  elements.rewindShortcut.title = confirmLocked ? "请先点开输入框再回退" : "";
+  elements.rewindShortcut.title = confirmLocked ? t("composer.rewindLocked") : "";
   elements.alwaysApproveShortcut.disabled = !connected || !hasSession || state.busy || confirmLocked;
   elements.alwaysApproveShortcut.setAttribute("aria-pressed", String(state.alwaysApprove));
   elements.alwaysApproveShortcut.title = confirmLocked
-    ? "请先点开输入框再切换权限"
+    ? t("composer.permissionLocked")
     : state.alwaysApprove
-    ? "关闭 always-approve，恢复手动审批"
-    : "为当前会话打开 always-approve";
-  const taskLabel = state.taskRunning ? "停止" : "发送";
+    ? t("composer.alwaysApproveDisable")
+    : t("composer.alwaysApproveEnable");
+  const taskLabel = t(state.taskRunning ? "composer.stop" : "composer.send");
   elements.taskButton.dataset.action = state.taskRunning ? "stop" : "send";
   elements.taskButton.setAttribute("aria-label", taskLabel);
   elements.taskButton.title = taskLabel;
@@ -2280,7 +2275,7 @@ function updateConversationTitle() {
   elements.currentSessionTitle.textContent = privateTitle
     ? "Grok Remote"
     : state.sessionTitle || "Grok Remote";
-  const collapseLabel = isMobileNavigation() ? "关闭会话列表" : "收起会话列表";
+  const collapseLabel = t(isMobileNavigation() ? "sidebar.close" : "sidebar.collapse");
   elements.collapseSidebarButton.setAttribute("aria-label", collapseLabel);
   elements.collapseSidebarButton.title = collapseLabel;
 }
@@ -2331,9 +2326,9 @@ function clearTimeline() {
   elements.timeline.replaceChildren();
 }
 
-function showEmpty(text) {
+function showEmpty(key) {
   clearTimeline();
-  elements.emptyState.querySelector("p").textContent = text;
+  setKeyedText(elements.emptyState.querySelector("p"), key);
   elements.emptyState.hidden = false;
   elements.timeline.append(elements.emptyState);
 }
@@ -2342,9 +2337,9 @@ function hideEmpty() {
   if (elements.emptyState.parentElement) elements.emptyState.remove();
 }
 
-function showThinking(label = "正在思考") {
+function showThinking(key = "thinking.thinking") {
   hideEmpty();
-  elements.thinkingLabel.textContent = label;
+  setKeyedText(elements.thinkingLabel, key);
   elements.timeline.append(elements.thinkingIndicator);
   elements.thinkingIndicator.hidden = false;
   scrollToBottom(false);
@@ -2388,15 +2383,46 @@ function showApp() {
   if (!state.currentSessionId) resetCurrentSession();
 }
 
-function setConnectionStatus(status, text) {
+function setConnectionStatus(status, key) {
   elements.connectionStatus.dataset.state = status;
-  elements.connectionStatus.textContent = text;
+  setKeyedText(elements.connectionStatus, key);
+}
+
+/** Text in the page markup that scripts rewrite, so it is set here rather than marked for i18n.js. */
+function labelScriptedText() {
+  setConnectionStatus("connecting", "connection.connecting");
+  setKeyedText(elements.emptyState.querySelector("p"), "empty.chooseSession");
+  setKeyedText(elements.thinkingLabel, "thinking.thinking");
+  elements.loadOlderButton.textContent = t("timeline.loadOlder");
+  renderSessionViewTitle();
+}
+
+/**
+ * Rewrites the text scripts have set after a language switch. Conversation content already on screen keeps
+ * its language; new content, and a session opened again, use the new one.
+ */
+function relabelInterface() {
+  for (const element of document.querySelectorAll("[data-text-key]")) {
+    element.textContent = t(element.dataset.textKey);
+  }
+  if (!elements.loadOlderButton.disabled) elements.loadOlderButton.textContent = t("timeline.loadOlder");
+  renderSessionViewTitle();
+  selectionBar.relabel();
+  renderSessionList();
+  renderAttachmentList();
+  updateControls();
+}
+
+/** Shows interface text and remembers its key, so a language switch can rewrite it in place. */
+function setKeyedText(element, key) {
+  element.dataset.textKey = key;
+  element.textContent = t(key);
 }
 
 function syncApprovalNotice() {
   const key = approvalNoticeKey();
   if (elements.approvalList.children.length > 0) {
-    showNotice(WAITING_APPROVAL_NOTICE, {
+    showNotice(t("approval.waiting"), {
       lifetime: "state",
       tone: "warning",
       key,
@@ -2438,7 +2464,7 @@ function closeSocket() {
   if (state.socket) {
     const socket = state.socket;
     state.socket = null;
-    rejectPending(new Error("连接已关闭。"));
+    rejectPending(new Error(t("connection.closed")));
     try { socket.close(); } catch {}
   }
 }
@@ -2461,7 +2487,7 @@ async function retryOutboxForCurrentSession() {
       if (error?.code !== "request_timeout" && state.socket?.readyState === WebSocket.OPEN) {
         clearOutbox(outbox.clientMessageId);
         clearNotice(deliveryNoticeKey(outbox.clientMessageId));
-        showNotice(`保留消息重试失败：${errorMessage(error)}`, {
+        showNotice(t("delivery.retryFailed", { message: errorMessage(error) }), {
           lifetime: "persistent",
           tone: "error",
           key: deliveryNoticeKey(outbox.clientMessageId),
@@ -2527,7 +2553,8 @@ function loadAttachmentDraftForCurrentSession() {
       ...attachment,
       clientId: createClientMessageId(),
       status: "ready",
-      statusText: "上传完成",
+      statusKey: "attachment.uploaded",
+      statusText: "",
     }))
     : [];
   state.pendingAttachments = [...stored, ...carried];
@@ -2621,16 +2648,16 @@ function scheduleReconnect() {
 }
 
 function commandStatus(status) {
-  if (status === "completed") return "完成";
-  if (status === "failed") return "失败";
-  if (status === "in_progress" || status === "pending") return "运行中";
-  return status || "完成";
+  if (status === "completed") return t("tool.completed");
+  if (status === "failed") return t("tool.failed");
+  if (status === "in_progress" || status === "pending") return t("tool.running");
+  return status || t("tool.completed");
 }
 
 function formatDate(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "";
   const milliseconds = value < 1_000_000_000_000 ? value * 1_000 : value;
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(window.grokRemoteI18n?.language() === "zh" ? "zh-CN" : "en", {
     month: "numeric",
     day: "numeric",
     hour: "2-digit",
@@ -2646,7 +2673,7 @@ function setLoginStatus(text, tone = null) {
 }
 
 function errorMessage(error) {
-  return error instanceof Error ? error.message : "请求失败。";
+  return error instanceof Error ? error.message : t("request.failed");
 }
 
 function stateGet(key) {
@@ -2679,6 +2706,6 @@ function debounce(fn, wait) {
 
 function byId(id) {
   const node = document.getElementById(id);
-  if (!node) throw new Error(`缺少页面元素 ${id}`);
+  if (!node) throw new Error(`Missing page element ${id}`);
   return node;
 }

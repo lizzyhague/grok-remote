@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
+import { t } from "./i18n.test-support.js";
 import { renderMarkdown } from "./markdown.js";
 
 const viewer = (await readFile(new URL("./viewer.js", import.meta.url), "utf8"))
@@ -41,6 +42,7 @@ async function view(filePath, response) {
   const requests = [];
   await vm.runInNewContext(viewer, {
     document, URLSearchParams,
+    grokRemoteI18n: { t },
     location: { pathname: "/view", search: `?${new URLSearchParams({ path: filePath })}` },
     renderMarkdown: (text) => renderMarkdown(text, document),
     fetch: async (url, options) => { requests.push({ url, options }); return response; },

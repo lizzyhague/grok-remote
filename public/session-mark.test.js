@@ -14,7 +14,7 @@ test("the session row uses a pin toggle instead of an overflow menu", () => {
   assert.match(app, /className = "session-rename-trigger quiet"/u);
   assert.match(app, /className = "session-mark-trigger quiet"/u);
   assert.match(app, /request\("session\.mark"/u);
-  assert.match(app, /取消钉住/u);
+  assert.match(app, /sessions\.unpin/u);
 });
 
 test("only saved recent session rows show the rename button before the pin", () => {
@@ -67,7 +67,7 @@ test("opening a marked session with a missing directory alerts and does not resu
     app.indexOf("async function restoreSessionAfterReconnect("),
   );
   assert.match(resume, /directoryAvailable\(selected\.projectId\)/u);
-  assert.match(resume, /showAlert\("这个会话的工作目录已经不在了。"/u);
+  assert.match(resume, /showAlert\(t\("session\.directoryGone"\)/u);
   assert.ok(resume.indexOf("showAlert") < resume.indexOf("session.resume"));
   assert.match(html, /id="app-alert-dialog"/u);
 });

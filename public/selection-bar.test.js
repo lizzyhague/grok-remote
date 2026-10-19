@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import "./i18n.test-support.js";
 import { createSelectionBar, trashRemainingText } from "./selection-bar.js";
 
 class FakeElement {
@@ -45,16 +46,16 @@ const document = {
 function remoteViews() {
   return {
     active: { actions: [
-      { id: "archive", label: "归档", resultLabel: "归档", icon: "archive" },
-      { id: "trash-active", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
+      { id: "archive", labelKey: "selection.archive", doneKey: "selection.doneArchive", icon: "archive" },
+      { id: "trash-active", labelKey: "common.delete", doneKey: "selection.doneTrash", icon: "delete", danger: true },
     ] },
     archived: { actions: [
-      { id: "unarchive", label: "取消归档", resultLabel: "取消归档", icon: "unarchive" },
-      { id: "trash-archived", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
+      { id: "unarchive", labelKey: "selection.unarchive", doneKey: "selection.doneUnarchive", icon: "unarchive" },
+      { id: "trash-archived", labelKey: "common.delete", doneKey: "selection.doneTrash", icon: "delete", danger: true },
     ] },
     trash: { actions: [
-      { id: "restore-trash", label: "恢复", resultLabel: "恢复", icon: "restore" },
-      { id: "delete-trash", label: "永久删除", resultLabel: "永久删除", icon: "purge", danger: true, permanent: true },
+      { id: "restore-trash", labelKey: "selection.restore", doneKey: "selection.doneRestore", icon: "restore" },
+      { id: "delete-trash", labelKey: "selection.purge", doneKey: "selection.donePurge", icon: "purge", danger: true, permanent: true },
     ] },
   };
 }
@@ -62,16 +63,16 @@ function remoteViews() {
 function groupViews() {
   return {
     active: { actions: [
-      { id: "archive", label: "归档", resultLabel: "归档", icon: "archive" },
-      { id: "trash-active", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
+      { id: "archive", labelKey: "selection.archive", doneKey: "selection.doneArchive", icon: "archive" },
+      { id: "trash-active", labelKey: "common.delete", doneKey: "selection.doneTrash", icon: "delete", danger: true },
     ] },
     archived: { actions: [
-      { id: "unarchive", label: "取消归档", resultLabel: "取消归档", icon: "unarchive" },
-      { id: "trash-archived", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
+      { id: "unarchive", labelKey: "selection.unarchive", doneKey: "selection.doneUnarchive", icon: "unarchive" },
+      { id: "trash-archived", labelKey: "common.delete", doneKey: "selection.doneTrash", icon: "delete", danger: true },
     ] },
     trash: { actions: [
-      { id: "restore-trash", label: "恢复", resultLabel: "恢复", icon: "restore" },
-      { id: "delete-trash", label: "永久删除", resultLabel: "永久删除", icon: "purge", danger: true, permanent: true },
+      { id: "restore-trash", labelKey: "selection.restore", doneKey: "selection.doneRestore", icon: "restore" },
+      { id: "delete-trash", labelKey: "selection.purge", doneKey: "selection.donePurge", icon: "purge", danger: true, permanent: true },
     ] },
   };
 }
@@ -140,7 +141,7 @@ function harness({
   };
 }
 
-test("generates fixed buttons for both Remote and lanting parameter sets", () => {
+test("generates fixed selection buttons", () => {
   const remote = harness();
   for (const id of [
     "selection-action-archive",
@@ -164,7 +165,7 @@ test("generates fixed buttons for both Remote and lanting parameter sets", () =>
   assert.ok(lanting.byId("selection-action-archive"));
   assert.ok(lanting.byId("selection-action-trash-active"));
   assert.ok(lanting.byId("selection-action-delete-trash"));
-  assert.equal(lanting.byId("selection-back-button").title, "返回最近群会话");
+  assert.equal(lanting.byId("selection-back-button").title, "返回最近会话");
 });
 
 test("archive and trash derive selection mode while ordinary views use the manual flag", () => {
@@ -304,24 +305,12 @@ test("ordinary-view success exits selection and uses the retention notice", asyn
   }]);
 });
 
-for (const scenario of [
-  {
-    label: "Remote",
-    options: {},
-    expectedTitle: "永久删除会话",
-    expectedDetail: "会话原文会一并删除",
-  },
-  {
-    label: "lanting",
-    options: {
-      views: groupViews(),
-      noun: "群",
-      permanentDeleteDetail: "群聊中涉及的每个 CLI 会话原文一并删除",
-    },
-    expectedTitle: "永久删除群",
-    expectedDetail: "群聊中涉及的每个 CLI 会话原文一并删除",
-  },
-]) {
+for (const scenario of [{
+  label: "Remote",
+  options: {},
+  expectedTitle: "永久删除会话",
+  expectedDetail: "会话原文会一并删除",
+}]) {
   test(`${scenario.label} permanent deletion uses its parameterized copy`, async () => {
     const h = harness({ initialView: "trash", ...scenario.options });
     h.controller.reconcile([item("a", { title: "标题" })]);

@@ -1,3 +1,6 @@
+/** Interface text from i18n.js; looked up on each call so language switches affect the next render. */
+const t = (key, params) => globalThis.grokRemoteI18n ? globalThis.grokRemoteI18n.t(key, params) : key;
+
 export class SlashCommandMenu {
   constructor(options) {
     this._input = options.input;
@@ -69,14 +72,14 @@ export class SlashCommandMenu {
     if (!text.startsWith("/")) return false;
     const match = /^\/([a-z-]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
     if (!match) {
-      this._onError(new Error("无法识别这个斜杠命令。输入 / 可以查看列表。"));
+      this._onError(new Error(t("slash.unrecognized")));
       return true;
     }
     const command = this._commands.find((candidate) =>
       candidate.name === match[1] || (match[1] === "status" && candidate.name === "session-info")
     );
     if (!command) {
-      this._onError(new Error(`不支持 /${match[1]}。输入 / 可以查看列表。`));
+      this._onError(new Error(t("slash.unsupported", { name: match[1] })));
       return true;
     }
     const argument = match[2]?.trim() || null;
@@ -103,7 +106,7 @@ export class SlashCommandMenu {
   async runShortcut(name, option = null) {
     const command = this._commands.find((candidate) => candidate.name === name);
     if (!command) {
-      this._onError(new Error(`快捷命令 /${name} 当前不可用。`));
+      this._onError(new Error(t("slash.shortcutUnavailable", { name })));
       return;
     }
     if (command.action === "confirm" && !confirmCommand(command)) return;
@@ -114,7 +117,7 @@ export class SlashCommandMenu {
     const fragment = document.createDocumentFragment();
     const heading = document.createElement("div");
     heading.className = "slash-heading";
-    heading.textContent = "Grok 命令";
+    heading.textContent = t("slash.heading");
     fragment.append(heading);
     const buttons = commands.map((command) => {
       const button = commandButton(`/${command.name}`, command.description);
@@ -125,7 +128,7 @@ export class SlashCommandMenu {
     if (!buttons.length) {
       const empty = document.createElement("p");
       empty.className = "slash-empty";
-      empty.textContent = "没有匹配的命令。";
+      empty.textContent = t("slash.noMatch");
       fragment.append(empty);
     }
     this._show(fragment, buttons);
@@ -176,7 +179,7 @@ export class SlashCommandMenu {
       ? model.label.replace(/^✓\s*/, "")
       : model.id;
     this._renderOptionLevel(
-      `${modelLabel} · 选择思考强度`,
+      t("slash.chooseEffort", { model: modelLabel }),
       model.items,
       () => this._renderOptions(command, parentData),
       (effort) => void this._execute(command, model.id, effort.id),
@@ -190,7 +193,7 @@ export class SlashCommandMenu {
     const back = document.createElement("button");
     back.type = "button";
     back.className = "slash-back";
-    back.textContent = "‹ 返回";
+    back.textContent = `‹ ${t("common.back")}`;
     back.addEventListener("click", onBack);
     const title = document.createElement("strong");
     title.textContent = titleText;
@@ -284,6 +287,6 @@ function commandButton(label, description) {
 function confirmCommand(command) {
   const message = typeof command.confirmation === "string" && command.confirmation
     ? command.confirmation
-    : `确定执行 /${command.name} 吗？`;
+    : t("slash.confirm", { name: command.name });
   return window.confirm(message);
 }

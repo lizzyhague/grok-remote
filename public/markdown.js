@@ -1,3 +1,6 @@
+/** Interface text from i18n.js; looked up on each call so language switches affect the next render. */
+const t = (key, params) => globalThis.grokRemoteI18n ? globalThis.grokRemoteI18n.t(key, params) : key;
+
 export function parseMarkdown(source) {
   return parseBlocks(String(source ?? "").replace(/\r\n?/g, "\n").split("\n"));
 }
@@ -25,7 +28,7 @@ export function tokenizeInline(source) {
 
     const image = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/.exec(rest);
     if (image) {
-      tokens.push({ type: "imageLink", text: image[1] || "未命名图片", href: image[2] });
+      tokens.push({ type: "imageLink", text: image[1] || t("markdown.untitledImage"), href: image[2] });
       index += image[0].length;
       continue;
     }
@@ -99,7 +102,7 @@ export async function copyTextToClipboard(text, ownerDocument = document) {
   textarea.setSelectionRange(0, textarea.value.length);
 
   try {
-    if (!ownerDocument.execCommand("copy")) throw new Error("浏览器未能复制代码");
+    if (!ownerDocument.execCommand("copy")) throw new Error(t("markdown.copyError"));
   } finally {
     textarea.remove();
   }
@@ -361,9 +364,9 @@ function renderCodeBlock(block, ownerDocument) {
 
 function setCopyButtonState(button, state, ownerDocument) {
   const labels = {
-    idle: "复制代码",
-    success: "已复制",
-    error: "复制失败",
+    idle: t("markdown.copy"),
+    success: t("markdown.copied"),
+    error: t("markdown.copyFailed"),
   };
   const label = labels[state];
   button.title = label;
@@ -448,7 +451,7 @@ function appendInline(parent, tokens, ownerDocument) {
     } else if (token.type === "link") {
       appendLink(parent, token.href, token.children, ownerDocument);
     } else if (token.type === "imageLink") {
-      appendLink(parent, token.href, [{ type: "text", text: `图片：${token.text}` }], ownerDocument, "markdown-image-link");
+      appendLink(parent, token.href, [{ type: "text", text: t("markdown.image", { name: token.text }) }], ownerDocument, "markdown-image-link");
     }
   }
 }

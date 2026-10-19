@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
+import { t } from "./i18n.test-support.js";
 
 const [source, styles] = await Promise.all([
   readFile(new URL("./app.js", import.meta.url), "utf8"),
@@ -33,6 +34,7 @@ test("user-input approvals use the same allow-or-decline card as other permissio
     elements: { approvalList },
     document: { createElement: (tagName) => new FakeElement(tagName) },
     removeApproval() {},
+    t,
     answerApproval: (...args) => calls.push(args),
   });
   vm.runInContext(
