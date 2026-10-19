@@ -152,7 +152,7 @@ export class SessionService {
   setMarked(projectId: string, sessionId: string, marked: boolean): Promise<SessionSummary> {
     return this.#serializeMutation(async () => {
       if (sessionId.startsWith(PENDING_SESSION_PREFIX)) {
-        throw new Error("这个会话还没有保存，不能钉住。");
+        throw new Error("This session has not been saved and cannot be pinned.");
       }
       if (!marked) {
         await this.#layout.unmark(sessionId);
@@ -172,18 +172,18 @@ export class SessionService {
    */
   async ensureMeta(projectId: string, sessionId: string): Promise<void> {
     if (sessionId.startsWith(PENDING_SESSION_PREFIX)) {
-      throw new Error("这个会话还没有保存，不能重命名。");
+      throw new Error("This session has not been saved and cannot be renamed.");
     }
     const project = await this.#projects.resolve(projectId);
     const record = await this.#disk.read(sessionId);
     if (!record) {
-      throw new Error("找不到这个会话。");
+      throw new Error("This session could not be found.");
     }
     await assertCwdBelongs(record.cwd, project.path);
     const existing = await this.#store.readMeta(sessionId);
     if (existing) {
       if (existing.projectId !== projectId) {
-        throw new Error("这个会话不属于当前项目。");
+        throw new Error("This session does not belong to the current project.");
       }
       return;
     }
@@ -196,7 +196,7 @@ export class SessionService {
 
     if (sessionId.startsWith(PENDING_SESSION_PREFIX)) {
       if (!meta || meta.projectId !== projectId) {
-        throw new Error("会话不存在，或不属于这个项目。");
+        throw new Error("The session does not exist or does not belong to this project.");
       }
       return {
         session: pendingSummary(meta, project.name),
@@ -210,12 +210,12 @@ export class SessionService {
     }
 
     if (this.#layout.isTrashed(sessionId)) {
-      throw new Error("这个会话在回收站中，请先恢复后再打开。");
+      throw new Error("This session is in trash. Restore it before opening it.");
     }
 
     const record = await this.#disk.read(sessionId);
     if (!record) {
-      throw new Error("会话不存在，或不属于这个项目。");
+      throw new Error("The session does not exist or does not belong to this project.");
     }
     await assertCwdBelongs(record.cwd, project.path);
 
@@ -255,7 +255,7 @@ export class SessionService {
   archive(projectId: string, sessionIds: string[]): Promise<SessionMutationResult> {
     return this.#mutateMany(projectId, sessionIds, "archive", async (resolvedProjectId, sessionId) => {
       if (this.#layout.isTrashed(sessionId)) {
-        throw new Error("这个会话已经在回收站中。");
+        throw new Error("This session is already in trash.");
       }
       await this.#assertCanManage(resolvedProjectId, sessionId);
       await this.#layout.archive(sessionId, resolvedProjectId);
@@ -265,7 +265,7 @@ export class SessionService {
   unarchive(projectId: string, sessionIds: string[]): Promise<SessionMutationResult> {
     return this.#mutateMany(projectId, sessionIds, "unarchive", async (resolvedProjectId, sessionId) => {
       if (this.#layout.isTrashed(sessionId)) {
-        throw new Error("这个会话在回收站中，请从回收站恢复。");
+        throw new Error("This session is in trash. Restore it from trash.");
       }
       await this.#assertCanManage(resolvedProjectId, sessionId);
       await this.#layout.unarchive(sessionId);
@@ -293,7 +293,7 @@ export class SessionService {
     return this.#mutateMany(projectId, sessionIds, "restore", async (resolvedProjectId, sessionId) => {
       const entry = this.#layout.trashEntry(sessionId);
       if (!entry || entry.projectId !== resolvedProjectId) {
-        throw new Error("这个会话不在当前项目的回收站中。");
+        throw new Error("This session is not in this project’s trash.");
       }
       await this.#assertCanManage(resolvedProjectId, sessionId);
       await this.#layout.restoreTrash(sessionId);
@@ -304,10 +304,10 @@ export class SessionService {
     return this.#mutateMany(projectId, sessionIds, "delete", async (resolvedProjectId, sessionId) => {
       const entry = this.#layout.trashEntry(sessionId);
       if (!entry || entry.projectId !== resolvedProjectId) {
-        throw new Error("只能永久删除回收站里的会话。");
+        throw new Error("Only sessions in trash can be permanently deleted.");
       }
       if (this.#isRunning(sessionId)) {
-        throw new Error("这个会话仍有任务正在运行，暂时不能整理。");
+        throw new Error("A task is still running in this session, so it cannot be organized right now.");
       }
       await this.#permanentlyDelete(sessionId);
       await this.#layout.removeTrash(sessionId);
@@ -337,7 +337,7 @@ export class SessionService {
         } catch (error) {
           result.failed.push({
             sessionId: entry.sessionId,
-            message: error instanceof Error ? error.message : "删除失败。",
+            message: error instanceof Error ? error.message : "Deletion failed.",
           });
         }
       });
@@ -425,7 +425,7 @@ export class SessionService {
     if (record) return this.#toSummary(record, projectId, marked);
     return {
       id: sessionId,
-      title: "新会话",
+      title: "New session",
       preview: "",
       createdAt: 0,
       updatedAt: 0,
@@ -480,15 +480,15 @@ export class SessionService {
 
   async #assertCanManage(projectId: string, sessionId: string): Promise<void> {
     if (sessionId.startsWith(PENDING_SESSION_PREFIX)) {
-      throw new Error("这个会话还没有保存，不能整理。");
+      throw new Error("This session has not been saved and cannot be organized.");
     }
     if (this.#isRunning(sessionId)) {
-      throw new Error("这个会话仍有任务正在运行，暂时不能整理。");
+      throw new Error("A task is still running in this session, so it cannot be organized right now.");
     }
     const project = await this.#projects.resolve(projectId);
     const record = await this.#disk.read(sessionId);
     if (!record) {
-      throw new Error("找不到这个会话。");
+      throw new Error("This session could not be found.");
     }
     await assertCwdBelongs(record.cwd, project.path);
   }
@@ -543,7 +543,7 @@ export class SessionService {
         } catch (error) {
           result.failed.push({
             sessionId,
-            message: error instanceof Error ? error.message : "操作失败。",
+            message: error instanceof Error ? error.message : "The operation failed.",
           });
         }
       }
@@ -604,9 +604,9 @@ async function assertCwdBelongs(sessionCwd: string, projectPath: string): Promis
   try {
     realSession = await realpath(sessionCwd);
   } catch {
-    throw new Error("会话工作目录无效。");
+    throw new Error("The session working directory is invalid.");
   }
   if (realSession !== projectPath) {
-    throw new Error("会话不属于当前项目。");
+    throw new Error("The session does not belong to the current project.");
   }
 }

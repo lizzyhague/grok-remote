@@ -29,16 +29,16 @@ test("keeps context and session-info as distinct native queries", async (context
     title: string;
     lines: string[];
   };
-  assert.equal(contextResult.title, "上下文");
-  assert.match(contextResult.lines.join("\n"), /工具定义：8,448 tokens（25 个）/);
+  assert.equal(contextResult.title, "Context");
+  assert.match(contextResult.lines.join("\n"), /Tool definitions: 8,448 tokens \(25 tools\)/);
 
   const statusResult = await runner.run("s1", "session-info", null, null) as {
     title: string;
     lines: string[];
   };
-  assert.equal(statusResult.title, "会话状态");
-  assert.match(statusResult.lines.join("\n"), /权限：ask/);
-  assert.match(statusResult.lines.join("\n"), /API：Responses/);
+  assert.equal(statusResult.title, "Session status");
+  assert.match(statusResult.lines.join("\n"), /Permission: ask/);
+  assert.match(statusResult.lines.join("\n"), /API: Responses/);
 });
 
 test("parses a typed model and effort without sending a slash prompt", async (context) => {

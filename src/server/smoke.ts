@@ -38,7 +38,7 @@ async function main(): Promise<void> {
     presence,
     grokBin: "grok",
     spawnAgent: () => {
-      throw new Error("smoke 不启动 Grok");
+      throw new Error("The smoke test must not start Grok.");
     },
   });
   const server = new RemoteWebSocketServer({
@@ -57,24 +57,24 @@ async function main(): Promise<void> {
     const address = await server.listen(0);
     const health = await fetch(`http://${address.host}:${address.port}/healthz`);
     if (health.status !== 200) {
-      throw new Error("healthz 失败");
+      throw new Error("healthz failed");
     }
     const page = await fetch(`http://${address.host}:${address.port}/`);
     if (!String(await page.text()).includes("Grok Remote")) {
-      throw new Error("首页不是 Grok Remote");
+      throw new Error("The home page is not Grok Remote.");
     }
     const login = await fetch(`http://${address.host}:${address.port}/auth/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ token }),
     });
-    if (login.status !== 200) throw new Error("认证失败");
+    if (login.status !== 200) throw new Error("Authentication failed.");
     const cookie = login.headers.get("set-cookie")!.split(";")[0]!;
     const socket = new WebSocket(`ws://${address.host}:${address.port}/ws`, { headers: { cookie } });
     await once(socket, "open");
     socket.send(JSON.stringify({ type: "projects.list", requestId: "p" }));
     const projectsMessage = JSON.parse(String((await once(socket, "message"))[0]));
-    if (!projectsMessage.data?.projects?.length) throw new Error("项目列表为空");
+    if (!projectsMessage.data?.projects?.length) throw new Error("The project list is empty.");
     socket.close();
     console.log(`smoke ok http://${address.host}:${address.port}/`);
   } finally {

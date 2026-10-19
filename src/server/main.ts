@@ -29,7 +29,7 @@ const TRASH_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 export async function main(): Promise<void> {
   const token = process.env.GROK_REMOTE_TOKEN;
   if (!token || token.length < 32) {
-    throw new Error("请设置至少 32 个字符的 GROK_REMOTE_TOKEN。");
+    throw new Error("Set GROK_REMOTE_TOKEN to at least 32 characters.");
   }
   const port = readPort(process.env.GROK_REMOTE_PORT ?? "3000");
   const configPath = process.env.GROK_REMOTE_PROJECTS_CONFIG ??
@@ -90,7 +90,7 @@ export async function main(): Promise<void> {
     }, TRASH_CLEANUP_INTERVAL_MS);
     cleanupTimer.unref();
     const address = await remote.listen(port);
-    console.log(`Grok Remote 正在监听 http://${address.host}:${address.port}/`);
+    console.log(`Grok Remote is listening on http://${address.host}:${address.port}/`);
     await waitForShutdownSignal();
   } finally {
     if (cleanupTimer) clearInterval(cleanupTimer);
@@ -103,10 +103,10 @@ export async function main(): Promise<void> {
 async function cleanExpiredTrash(sessions: SessionService): Promise<void> {
   const result = await sessions.purgeExpired();
   if (result.deleted > 0) {
-    console.log(`回收站自动清除了 ${result.deleted} 个过期会话。`);
+    console.log(`Trash cleanup permanently deleted ${result.deleted} expired sessions.`);
   }
   for (const failure of result.failed) {
-    console.error(`回收站无法清除会话 ${failure.sessionId}：${failure.message}`);
+    console.error(`Trash cleanup could not delete session ${failure.sessionId}: ${failure.message}`);
   }
 }
 
@@ -116,7 +116,7 @@ async function assertGrokBin(grokBin: string): Promise<void> {
       await access(grokBin);
       return;
     } catch {
-      throw new Error(`找不到 GROK_BIN：${grokBin}`);
+      throw new Error(`GROK_BIN was not found: ${grokBin}`);
     }
   }
 }
@@ -131,7 +131,7 @@ function readAllowedOrigins(source: string | undefined): string[] {
 function readPort(source: string): number {
   const port = Number(source);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new Error("GROK_REMOTE_PORT 必须是 1 到 65535 之间的整数。");
+    throw new Error("GROK_REMOTE_PORT must be an integer from 1 to 65535.");
   }
   return port;
 }
@@ -140,7 +140,7 @@ function readPositiveInt(source: string | undefined, fallback: number): number {
   if (!source) return fallback;
   const value = Number(source);
   if (!Number.isInteger(value) || value < 1) {
-    throw new Error(`数值无效：${source}`);
+    throw new Error(`Invalid numeric value: ${source}`);
   }
   return value;
 }

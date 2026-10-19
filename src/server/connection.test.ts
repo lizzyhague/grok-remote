@@ -235,7 +235,7 @@ test("does not rename when session meta cannot be created", async () => {
   };
   const services = makeServices(turns);
   services.sessions.ensureMeta = async () => {
-    throw new Error("找不到这个会话。");
+    throw new Error("This session could not be found.");
   };
   const socket = new FakeSocket();
   const connection = new BrowserConnection("conn-1", socket, services);
@@ -255,7 +255,7 @@ test("does not rename when session meta cannot be created", async () => {
     (item as { requestId?: string }).requestId === "rename-2"
   ) as { ok: boolean; error?: { message: string } };
   assert.equal(response.ok, false);
-  assert.match(response.error?.message ?? "", /找不到这个会话/u);
+  assert.match(response.error?.message ?? "", /could not be found/u);
   await connection.disconnect();
   services.presence.dispose();
 });
@@ -317,7 +317,7 @@ test("stop acknowledgements, failed commands and disconnects do not unlock a run
   assert.equal((await request(b, { type: "task.stop" })).ok, true);
   const tryA = () => request(a, { type: "message.send", text: "hello", clientMessageId: "a1" });
   assert.equal((await tryA()).error?.code, "project_busy");
-  services.commands.run = async () => { throw new Error("当前会话正在执行任务，请稍后再试。"); };
+  services.commands.run = async () => { throw new Error("The current session is running a task. Try again shortly."); };
   assert.equal((await request(b, { type: "command.run", command: "context" })).ok, false);
   assert.equal((await tryA()).error?.code, "project_busy");
   const sendMessage = turns.sendMessage;
@@ -425,7 +425,7 @@ function makeServices(turns: TurnApi): BrowserConnectionServices {
   const opened = {
     session: {
       id: "pending-1",
-      title: "新会话",
+      title: "New session",
       preview: "",
       createdAt: 1,
       updatedAt: 1,

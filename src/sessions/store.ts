@@ -66,7 +66,7 @@ export class RemoteSessionStore {
     await writeFile(path.join(dir, "meta.json"), `${JSON.stringify(meta, null, 2)}\n`, "utf8");
   }
 
-  async createPending(projectId: string, title = "新会话"): Promise<StoredSessionMeta> {
+  async createPending(projectId: string, title = "New session"): Promise<StoredSessionMeta> {
     const id = `${PENDING_SESSION_PREFIX}${randomUUID()}`;
     const meta: StoredSessionMeta = {
       id,
@@ -90,7 +90,7 @@ export class RemoteSessionStore {
   async #bindGrokSessionNow(pendingId: string, grokSessionId: string): Promise<StoredSessionMeta> {
     const pending = await this.readMeta(pendingId);
     if (!pending) {
-      throw new Error("找不到待绑定的会话。");
+      throw new Error("The pending session to bind could not be found.");
     }
     const bound: StoredSessionMeta = {
       ...pending,
@@ -233,7 +233,7 @@ export class RemoteSessionStore {
 
 function sanitizeId(sessionId: string): string {
   if (!/^[\w.-]+$/u.test(sessionId)) {
-    throw new Error("会话 ID 不合法。");
+    throw new Error("The session ID is invalid.");
   }
   return sessionId;
 }

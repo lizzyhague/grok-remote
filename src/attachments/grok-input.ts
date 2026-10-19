@@ -21,7 +21,7 @@ export function validateGrokAttachments(attachments: ResolvedAttachment[]): void
   if (missing) {
     throw new GrokAttachmentError(
       "attachment_unreadable",
-      `Grok Remote 无法读取附件：${missing.originalName}。`,
+      `Grok Remote could not read the attachment: ${missing.originalName}.`,
     );
   }
 }

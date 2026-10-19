@@ -216,7 +216,7 @@ export class TurnRuntime {
       ) {
         throw new TurnRuntimeError(
           "client_message_conflict",
-          "这个客户端消息 ID 已用于另一组正文或附件。",
+          "This client message ID was already used for different text or attachments.",
         );
       }
       return {
@@ -231,7 +231,7 @@ export class TurnRuntime {
     try {
       if (input.attachmentIds.length > 0) {
         if (!this.#uploads) {
-          throw new TurnRuntimeError("uploads_unavailable", "当前后端没有启用附件服务。");
+          throw new TurnRuntimeError("uploads_unavailable", "This backend does not have attachments enabled.");
         }
         lease = await this.#uploads.createLease(
           { caller: "grok", projectId: meta.projectId, sessionId: meta.id },
@@ -286,7 +286,7 @@ export class TurnRuntime {
 
   async runPrompt(sessionId: string, text: string): Promise<{ turnId: string }> {
     const meta = await this.#store.readMeta(sessionId);
-    if (!meta) throw new Error("请先打开一个会话。");
+    if (!meta) throw new Error("Open a session first.");
     const turnId = randomUUID();
     const worker = await this.#ensureWorker(meta);
     await this.#enqueue(worker, async () => {
@@ -332,7 +332,7 @@ export class TurnRuntime {
   ): Promise<{ sessionId: string; modelId: string; reasoningEffort: string }> {
     return this.#withAttached(sessionId, async (worker, grokSessionId) => {
       const info = await worker.client.sessionInfo(grokSessionId);
-      if (!info.model) throw new Error("Grok 没有返回当前模型，无法只修改思考强度。");
+      if (!info.model) throw new Error("Grok did not return the current model, so reasoning effort cannot be changed alone.");
       await worker.client.sessionSetModel(grokSessionId, info.model, reasoningEffort);
       return { sessionId: grokSessionId, modelId: info.model, reasoningEffort };
     });
@@ -408,10 +408,10 @@ export class TurnRuntime {
     return this.#withAttached(sessionId, async (worker, grokSessionId) => {
       const points = await worker.client.rewindPoints(grokSessionId);
       const latest = points.toSorted((left, right) => right.prompt_index - left.prompt_index)[0];
-      if (!latest) throw new Error("这个会话还没有可以回退的对话轮次。");
+      if (!latest) throw new Error("This session has no turn to rewind.");
       const result = await worker.client.rewindConversation(grokSessionId, latest.prompt_index);
       if (!result.success) {
-        throw new Error(result.error || "Grok 没有完成对话回退。");
+        throw new Error(result.error || "Grok did not complete the rewind.");
       }
       const promptText = typeof result.prompt_text === "string" ? result.prompt_text : null;
       const visiblePrompt = promptText
@@ -428,7 +428,7 @@ export class TurnRuntime {
   async stop(sessionId: string): Promise<void> {
     const worker = this.#workers.get(sessionId);
     if (!worker) return;
-    this.#requestStop(worker, "用户停止了本轮。");
+    this.#requestStop(worker, "The user stopped this turn.");
   }
 
   #requestStop(worker: LiveWorker, reason: string): void {
@@ -443,7 +443,7 @@ export class TurnRuntime {
 
   async toggleAlwaysApprove(sessionId: string): Promise<{ enabled: boolean }> {
     const meta = await this.#store.readMeta(sessionId);
-    if (!meta) throw new Error("请先打开一个会话。");
+    if (!meta) throw new Error("Open a session first.");
     meta.permissionMode = meta.permissionMode === "always-approve" ? "ask" : "always-approve";
     await this.#store.writeMeta(meta);
     const worker = this.#workers.get(sessionId) ??
@@ -499,7 +499,7 @@ export class TurnRuntime {
       if (always && !needsHuman) {
         continue;
       }
-      this.#requestStop(worker, "没有人处理权限或需要用户输入，本轮已中止。");
+      this.#requestStop(worker, "No one was available to handle permissions or user input, so this turn was interrupted.");
     }
   }
 
@@ -516,7 +516,7 @@ export class TurnRuntime {
           type: "turn.status",
           turnId: last.event.turnId,
           status: "interrupted",
-          reason: "后端已重启，上一轮未能继续。",
+          reason: "The backend restarted, so the previous turn could not continue.",
         });
       }
     }
@@ -540,7 +540,7 @@ export class TurnRuntime {
       : undefined);
     if (existing) {
       if (existing.closing || existing.stopReason) {
-        throw new TurnRuntimeError("session_stopping", "当前会话正在结束任务，请稍后再试。");
+        throw new TurnRuntimeError("session_stopping", "The current session is stopping a task. Try again shortly.");
       }
       return existing;
     }
@@ -586,7 +586,7 @@ export class TurnRuntime {
         .then(() => this.#onUpdate(worker, update))
         .catch((error: unknown) => {
           console.error(
-            `处理 Grok 更新失败：${error instanceof Error ? error.message : String(error)}`,
+            `Failed to process a Grok update: ${error instanceof Error ? error.message : String(error)}`,
           );
         });
     });
@@ -594,7 +594,7 @@ export class TurnRuntime {
       void this.#onPermission(worker, request);
     });
     client.on("stderr", (text: string) => {
-      console.error(`Grok Worker：${text}`);
+      console.error(`Grok worker: ${text}`);
     });
     client.on("exit", () => {
       if (this.#workers.get(worker.sessionKey) === worker) {
@@ -616,7 +616,7 @@ export class TurnRuntime {
     const meta = await this.#requireExistingMeta(sessionId);
     const worker = await this.#ensureWorker(meta);
     if (worker.busy || worker.enqueuing > 0 || worker.queue.length > 0) {
-      throw new Error("当前会话正在执行任务，请稍后再试。");
+      throw new Error("The current session is running a task. Try again shortly.");
     }
     try {
       const grokSessionId = await this.#attachSession(worker);
@@ -628,7 +628,7 @@ export class TurnRuntime {
 
   async #enqueue(worker: LiveWorker, accept: () => Promise<void>): Promise<void> {
     if (worker.closing || worker.stopReason) {
-      throw new TurnRuntimeError("session_stopping", "当前会话正在结束任务，请稍后再试。");
+      throw new TurnRuntimeError("session_stopping", "The current session is stopping a task. Try again shortly.");
     }
     // Keep the worker while persisting so the previous turn's cleanup cannot close a process about to receive a message.
     worker.enqueuing += 1;
@@ -705,7 +705,7 @@ export class TurnRuntime {
         } catch (error) {
           await this.#flushPathRedactors(worker);
           status = worker.stopReason ? "interrupted" : "failed";
-          reason = worker.stopReason ?? (error instanceof Error ? error.message : "本轮失败。");
+          reason = worker.stopReason ?? (error instanceof Error ? error.message : "This turn failed.");
         } finally {
           await this.#releaseTaskAttachmentLease(item.turnId);
           if (worker.queue.length === 0) await this.#shutdown(worker);
@@ -862,7 +862,7 @@ export class TurnRuntime {
     this.#approvals.set(approval.approvalId, { worker, pending });
 
     if (human && !this.#presence.online) {
-      this.#requestStop(worker, "需要用户回答，但当前没有前端在线。");
+      this.#requestStop(worker, "User input is required, but no frontend is connected.");
       return;
     }
 
@@ -1070,20 +1070,20 @@ export class TurnRuntime {
       if (existing.projectId !== projectId) {
         throw new TurnRuntimeError(
           "session_project_mismatch",
-          "这个会话不属于当前项目。",
+          "This session does not belong to the current project.",
         );
       }
       return existing;
     }
     if (sessionId.startsWith(PENDING_SESSION_PREFIX)) {
-      throw new Error("会话不存在。");
+      throw new Error("The session does not exist.");
     }
     const meta: StoredSessionMeta = {
       id: sessionId,
       projectId,
       grokSessionId: sessionId,
       permissionMode: "ask",
-      title: "会话",
+      title: "Session",
       createdAt: Math.floor(Date.now() / 1_000),
       clientMessageIds: {},
       clientMessagePayloads: {},
@@ -1094,7 +1094,7 @@ export class TurnRuntime {
 
   async #requireExistingMeta(sessionId: string): Promise<StoredSessionMeta> {
     const meta = await this.#store.readMeta(sessionId);
-    if (!meta) throw new Error("请先打开一个会话。");
+    if (!meta) throw new Error("Open a session first.");
     return meta;
   }
 
@@ -1135,7 +1135,7 @@ export class TurnRuntime {
         lease.expiresAtMs = renewed.expiresAtMs;
       } catch (error) {
         console.error(
-          `续期 Grok 附件租约失败：${error instanceof Error ? error.message : String(error)}`,
+          `Failed to renew Grok attachment leases: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
@@ -1152,7 +1152,7 @@ export class TurnRuntime {
     }
     await this.#uploads?.releaseLease(lease.leaseId, lease.ownerId).catch((error: unknown) => {
       console.error(
-        `释放 Grok 附件租约失败：${error instanceof Error ? error.message : String(error)}`,
+        `Failed to release Grok attachment leases: ${error instanceof Error ? error.message : String(error)}`,
       );
     });
   }
@@ -1251,10 +1251,10 @@ function permissionReason(toolCall: Record<string, unknown>, human: boolean): st
   if (human) return null;
 
   const kind = permissionKind(toolCall);
-  if (kind === "command") return "Grok 请求执行一条命令。";
-  if (kind === "file_change") return "Grok 请求修改文件。";
+  if (kind === "command") return "Grok is requesting to run a command.";
+  if (kind === "file_change") return "Grok is requesting to modify files.";
   const title = firstString(toolCall.title);
-  return title ?? "Grok 请求执行一项操作。";
+  return title ?? "Grok is requesting to perform an action.";
 }
 
 function objectField(value: unknown): Record<string, unknown> {

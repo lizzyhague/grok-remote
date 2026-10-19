@@ -32,7 +32,7 @@ test("lists only regular project directories directly below each root", async (c
 
   await assert.rejects(
     catalog.resolve("workspace/..%2Foutside"),
-    /不在允许的根目录/u,
+    /outside the allowed roots/u,
   );
 });
 

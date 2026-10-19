@@ -43,17 +43,17 @@ export class ProjectCatalog {
     try {
       parsed = JSON.parse(source);
     } catch {
-      throw new Error(`项目根目录配置不是有效 JSON：${configPath}`);
+      throw new Error(`The project roots configuration is not valid JSON: ${configPath}`);
     }
     if (!isProjectConfigFile(parsed)) {
-      throw new Error(`项目根目录配置格式不正确：${configPath}`);
+      throw new Error(`The project roots configuration has an invalid format: ${configPath}`);
     }
     return ProjectCatalog.fromRoots(parsed.roots);
   }
 
   static async fromRoots(roots: ProjectRootConfig[]): Promise<ProjectCatalog> {
     if (roots.length === 0) {
-      throw new Error("至少需要配置一个项目根目录。");
+      throw new Error("At least one project root must be configured.");
     }
 
     const seenIds = new Set<string>();
@@ -61,19 +61,19 @@ export class ProjectCatalog {
 
     for (const root of roots) {
       if (!/^[a-z0-9][a-z0-9_-]*$/u.test(root.id)) {
-        throw new Error(`项目根目录 ID 不合法：${root.id}`);
+        throw new Error(`Invalid project root ID: ${root.id}`);
       }
       if (seenIds.has(root.id)) {
-        throw new Error(`项目根目录 ID 重复：${root.id}`);
+        throw new Error(`Duplicate project root ID: ${root.id}`);
       }
       if (!path.isAbsolute(root.path)) {
-        throw new Error(`项目根目录必须使用绝对路径：${root.path}`);
+        throw new Error(`Project roots must use absolute paths: ${root.path}`);
       }
 
       const rootRealPath = await realpath(root.path);
       const rootStats = await stat(rootRealPath);
       if (!rootStats.isDirectory()) {
-        throw new Error(`项目根目录不是文件夹：${root.path}`);
+        throw new Error(`The project root is not a directory: ${root.path}`);
       }
 
       seenIds.add(root.id);
@@ -99,7 +99,7 @@ export class ProjectCatalog {
     const projects = await this.#scan();
     const project = projects.find((candidate) => candidate.id === projectId);
     if (!project) {
-      throw new Error("项目不存在，或不在允许的根目录中。");
+      throw new Error("The project does not exist or is outside the allowed roots.");
     }
     return project;
   }

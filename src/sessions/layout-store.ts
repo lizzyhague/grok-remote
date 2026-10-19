@@ -101,7 +101,7 @@ export class SessionLayoutStore {
 
   async mark(sessionId: string, projectId: string): Promise<void> {
     if (this.#trash.has(sessionId)) {
-      throw new Error("回收站里的会话不能钉住，请先恢复。");
+      throw new Error("Sessions in trash cannot be pinned. Restore the session first.");
     }
     const previous = this.#marked.get(sessionId);
     this.#marked.set(sessionId, { sessionId, projectId });
@@ -129,7 +129,7 @@ export class SessionLayoutStore {
 
   async archive(sessionId: string, projectId: string): Promise<void> {
     if (this.#trash.has(sessionId)) {
-      throw new Error("这个会话已经在回收站中。");
+      throw new Error("This session is already in trash.");
     }
     const previous = this.#archived.get(sessionId);
     this.#archived.set(sessionId, { sessionId, projectId });
@@ -144,7 +144,7 @@ export class SessionLayoutStore {
 
   async unarchive(sessionId: string): Promise<boolean> {
     if (this.#trash.has(sessionId)) {
-      throw new Error("这个会话在回收站中，请从回收站恢复。");
+      throw new Error("This session is in trash. Restore it from trash.");
     }
     const previous = this.#archived.get(sessionId);
     if (!previous) return false;
@@ -219,10 +219,10 @@ export class SessionLayoutStore {
     try {
       value = JSON.parse(source);
     } catch {
-      throw new Error(`会话整理状态文件不是有效 JSON：${this.#filePath}`);
+      throw new Error(`The session organization state file is not valid JSON: ${this.#filePath}`);
     }
     if (!isLayoutFile(value)) {
-      throw new Error(`会话整理状态文件格式不正确：${this.#filePath}`);
+      throw new Error(`The session organization state file has an invalid format: ${this.#filePath}`);
     }
     for (const entry of value.archived) {
       this.#archived.set(entry.sessionId, { ...entry });

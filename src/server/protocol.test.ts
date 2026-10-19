@@ -162,7 +162,7 @@ test("allows at most 1000 session IDs in one protective batch", () => {
       action: "archive",
     })),
     (error: unknown) => error instanceof ProtocolError &&
-      error.code === "invalid_field" && /最多 1000 项/u.test(error.message),
+      error.code === "invalid_field" && /at most 1000 items/u.test(error.message),
   );
 });
 
@@ -199,7 +199,7 @@ test("rejects empty, multiline, and oversized session titles", () => {
     })),
     (error: unknown) =>
       error instanceof ProtocolError && error.code === "invalid_field" &&
-      error.message === "会话名称不能为空。",
+      error.message === "The session name must not be empty.",
   );
 
   assert.throws(
@@ -212,7 +212,7 @@ test("rejects empty, multiline, and oversized session titles", () => {
     })),
     (error: unknown) =>
       error instanceof ProtocolError && error.code === "invalid_field" &&
-      error.message === "会话名称不能包含换行。",
+      error.message === "The session name must not contain line breaks.",
   );
 
   assert.throws(
@@ -225,6 +225,6 @@ test("rejects empty, multiline, and oversized session titles", () => {
     })),
     (error: unknown) =>
       error instanceof ProtocolError && error.code === "invalid_field" &&
-      error.message === "会话名称太长。",
+      error.message === "The session name is too long.",
   );
 });

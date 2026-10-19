@@ -85,18 +85,18 @@ test("serves health and authenticated WebSocket only on loopback", async () => {
     const missing = await fetch(`http://${address.host}:${address.port}/not-a-file`);
     assert.equal(missing.status, 404);
 
-    await withTimeout(opened, "打开 WebSocket");
+    await withTimeout(opened, "opening WebSocket");
     webSocket.send(JSON.stringify({
       type: "projects.list",
       requestId: "projects-1",
     }));
-    const authMessage = await withTimeout(once(webSocket, "message"), "等待认证响应");
+    const authMessage = await withTimeout(once(webSocket, "message"), "waiting for authentication response");
     const auth = JSON.parse(String(authMessage[0])) as { ok: boolean };
     assert.equal(auth.ok, true);
     assert.equal(address.host, "127.0.0.1");
   } finally {
     if (webSocket.readyState !== WebSocket.CLOSED) webSocket.close();
-    await withTimeout(server.close(), "关闭服务器");
+    await withTimeout(server.close(), "closing server");
     await harness.turns.dispose();
     services.presence.dispose();
   }
@@ -121,27 +121,27 @@ test("only accepts WebSocket upgrades from its own page", async () => {
     });
     const rejected = await withTimeout(
       once(attacker, "error").then(() => "rejected" as const),
-      "等待跨站连接被拒绝",
+      "waiting for cross-origin connection rejection",
     );
     assert.equal(rejected, "rejected");
 
     const sameOrigin = new WebSocket(url, {
       headers: { cookie, origin: `http://${address.host}:${address.port}` },
     });
-    await withTimeout(once(sameOrigin, "open"), "打开同源 WebSocket");
+    await withTimeout(once(sameOrigin, "open"), "opening same-origin WebSocket");
     sameOrigin.close();
 
     const proxied = new WebSocket(url, {
       headers: { cookie, origin: "https://vps.example.ts.net" },
     });
-    await withTimeout(once(proxied, "open"), "打开白名单来源的 WebSocket");
+    await withTimeout(once(proxied, "open"), "opening WebSocket from an allowed origin");
     proxied.close();
 
     const headless = new WebSocket(url, { headers: { cookie } });
-    await withTimeout(once(headless, "open"), "打开无 Origin 的 WebSocket");
+    await withTimeout(once(headless, "open"), "opening WebSocket without an Origin");
     headless.close();
   } finally {
-    await withTimeout(server.close(), "关闭服务器");
+    await withTimeout(server.close(), "closing server");
     await harness.turns.dispose();
     services.presence.dispose();
   }
@@ -201,7 +201,7 @@ test("streams same-origin uploads through the shared upload adapter", async () =
     });
     assert.equal(crossOrigin.status, 403);
   } finally {
-    await withTimeout(server.close(), "关闭服务器");
+    await withTimeout(server.close(), "closing server");
     await harness.turns.dispose();
     harness.services.presence.dispose();
   }
@@ -479,7 +479,7 @@ function emptyServices(): { services: BrowserConnectionServices; turns: TurnRunt
     presence,
     grokBin: "grok",
     spawnAgent: () => {
-      throw new Error("测试不应启动 Grok");
+      throw new Error("The test must not start Grok.");
     },
   });
   return {
@@ -495,10 +495,10 @@ function emptyServices(): { services: BrowserConnectionServices; turns: TurnRunt
         return { sessions: [], marked: [], nextCursor: null };
       },
       async start(): Promise<OpenedSession> {
-        throw new Error("未使用");
+        throw new Error("Unused");
       },
       async open(): Promise<OpenedSession> {
-        throw new Error("未使用");
+        throw new Error("Unused");
       },
       async archive(_projectId: string, sessionIds: string[]) {
         return { succeeded: sessionIds, failed: [] };
@@ -518,7 +518,7 @@ function emptyServices(): { services: BrowserConnectionServices; turns: TurnRunt
       async setMarked(projectId: string, sessionId: string, marked: boolean) {
         return {
           id: sessionId,
-          title: "新会话",
+          title: "New session",
           preview: "",
           createdAt: 1,
           updatedAt: 1,
@@ -532,7 +532,7 @@ function emptyServices(): { services: BrowserConnectionServices; turns: TurnRunt
         };
       },
       async ensureMeta() {
-        throw new Error("未使用");
+        throw new Error("Unused");
       },
     },
     turns,
@@ -545,7 +545,7 @@ function emptyServices(): { services: BrowserConnectionServices; turns: TurnRunt
 
 function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label}超时。`)), 2_000);
+    const timer = setTimeout(() => reject(new Error(`${label} timed out.`)), 2_000);
     promise.then(
       (value) => {
         clearTimeout(timer);

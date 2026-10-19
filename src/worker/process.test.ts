@@ -50,7 +50,7 @@ test("rejects new workers at the process and memory gates", () => {
       minFreeMemoryBytes: 1,
       memory: { availableBytes: 10, platform: "linux", source: "linux-meminfo" },
     }),
-    /已达到上限/u,
+    /limit has been reached/u,
   );
   assert.throws(
     () => assertWorkerCapacity({
@@ -59,7 +59,7 @@ test("rejects new workers at the process and memory gates", () => {
       minFreeMemoryBytes: 1_000,
       memory: { availableBytes: 10, platform: "darwin", source: "darwin-vm-stat" },
     }),
-    /可用内存不足/u,
+    /does not have enough available memory/u,
   );
   assert.doesNotThrow(() => assertWorkerCapacity({
     activeWorkers: 1,

@@ -67,7 +67,7 @@ test("rejects malformed state instead of silently discarding it", async (context
   await writeFile(filePath, JSON.stringify({ version: 1, archived: [{ bad: true }], trash: [] }));
   await assert.rejects(
     () => SessionLayoutStore.open(filePath),
-    /格式不正确/u,
+    /invalid format/u,
   );
 });
 
@@ -96,7 +96,7 @@ test("refuses to pin a session that is already in trash", async (context) => {
   const filePath = await fixture(context);
   const store = await SessionLayoutStore.open(filePath);
   await store.moveToTrash(trashEntry());
-  await assert.rejects(() => store.mark("session-1", "projects/demo"), /回收站/u);
+  await assert.rejects(() => store.mark("session-1", "projects/demo"), /trash/u);
 });
 
 test("keeps layout.json under the grok-remote state directory", () => {

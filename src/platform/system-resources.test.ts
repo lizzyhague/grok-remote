@@ -87,16 +87,16 @@ test("memory messages identify the source, threshold, and degraded behavior", ()
     { availableBytes: 512 * 1_048_576, platform: "darwin", source: "darwin-vm-stat" },
     1_024 * 1_048_576,
   );
-  assert.match(low, /当前可用 512 MiB/u);
-  assert.match(low, /门槛 1024 MiB/u);
+  assert.match(low, /512 MiB is available/u);
+  assert.match(low, /threshold is 1024 MiB/u);
   assert.match(low, /GROK_REMOTE_MIN_FREE_MEMORY_MB/u);
 
   const degraded = memoryDegradedMessage({
     availableBytes: 216 * 1_048_576,
     platform: "darwin",
     source: "os-freemem",
-    degradedReason: "vm_stat 输出缺少页大小",
+    degradedReason: "vm_stat output is missing page size",
   }, 1_024 * 1_048_576);
-  assert.match(degraded, /已放行/u);
-  assert.match(degraded, /门槛暂不生效/u);
+  assert.match(degraded, /was allowed to start/u);
+  assert.match(degraded, /threshold is not enforced/u);
 });

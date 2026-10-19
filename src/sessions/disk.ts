@@ -186,7 +186,7 @@ function pickTitle(summary: Record<string, unknown>): string {
   if (typeof summary.session_summary === "string" && summary.session_summary.trim()) {
     return summary.session_summary.trim();
   }
-  return "未命名会话";
+  return "Untitled session";
 }
 
 function parseTimestamp(value: unknown): number {

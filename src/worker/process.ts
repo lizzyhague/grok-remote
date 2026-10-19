@@ -28,7 +28,7 @@ export const spawnGrokAgent: SpawnAgent = (options) => {
   }) as ChildProcessWithoutNullStreams;
 
   if (child.pid === undefined) {
-    throw new Error("无法启动 Grok Worker。");
+    throw new Error("Could not start the Grok worker.");
   }
 
   return {
@@ -61,7 +61,7 @@ export function assertWorkerCapacity(options: {
   memory: MemoryReading;
 }): void {
   if (options.activeWorkers >= options.maxWorkers) {
-    throw Object.assign(new Error("当前活动的 Grok 会话已达到上限，请等其中一个结束后再试。"), {
+    throw Object.assign(new Error("The active Grok session limit has been reached. Wait for one to end and try again."), {
       code: "worker_limit",
     });
   }

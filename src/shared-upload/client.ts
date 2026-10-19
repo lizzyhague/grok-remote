@@ -77,7 +77,7 @@ export class SharedUploadClient {
           : undefined,
       }, (response) => void collectResponse<Result>(response).then(resolve, reject));
       request.once("error", (error) => reject(connectionError(error)));
-      request.setTimeout(30_000, () => request.destroy(new Error("共享上传服务请求超时。")));
+      request.setTimeout(30_000, () => request.destroy(new Error("The shared upload service request timed out.")));
       request.end(body ?? undefined);
     });
   }
@@ -100,7 +100,7 @@ export class SharedUploadClient {
         },
       }, (response) => void collectResponse<Result>(response).then(resolve, reject));
       request.once("error", (error) => reject(connectionError(error)));
-      source.once("aborted", () => request.destroy(new Error("浏览器中断了上传。")));
+      source.once("aborted", () => request.destroy(new Error("The browser aborted the upload.")));
       source.once("error", (error) => request.destroy(error));
       source.pipe(request);
     });
@@ -114,7 +114,7 @@ async function collectResponse<Result>(response: IncomingMessage): Promise<Resul
     const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
     length += chunk.byteLength;
     if (length > MAX_RESPONSE_BYTES) {
-      throw new SharedUploadError("response_too_large", "共享上传服务返回了过大的响应。", 502);
+      throw new SharedUploadError("response_too_large", "The shared upload service returned an oversized response.", 502);
     }
     chunks.push(chunk);
   }
@@ -122,7 +122,7 @@ async function collectResponse<Result>(response: IncomingMessage): Promise<Resul
   try {
     value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
-    throw new SharedUploadError("invalid_response", "共享上传服务返回了无效响应。", 502);
+    throw new SharedUploadError("invalid_response", "The shared upload service returned an invalid response.", 502);
   }
   const object = value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -133,21 +133,21 @@ async function collectResponse<Result>(response: IncomingMessage): Promise<Resul
       : null;
     throw new SharedUploadError(
       typeof error?.code === "string" ? error.code : "upload_service_error",
-      typeof error?.message === "string" ? error.message : "共享上传服务拒绝了请求。",
+      typeof error?.message === "string" ? error.message : "The shared upload service rejected the request.",
       response.statusCode ?? 502,
     );
   }
   if (!object) {
-    throw new SharedUploadError("invalid_response", "共享上传服务返回了无效响应。", 502);
+    throw new SharedUploadError("invalid_response", "The shared upload service returned an invalid response.", 502);
   }
   return object as Result;
 }
 
 function connectionError(error: Error): SharedUploadError {
-  console.error(`无法连接共享上传服务：${error.message}`);
+  console.error(`Could not connect to the shared upload service: ${error.message}`);
   return new SharedUploadError(
     "upload_service_unavailable",
-    "共享上传服务暂时不可用。",
+    "The shared upload service is temporarily unavailable.",
     503,
   );
 }

@@ -135,25 +135,25 @@ export class ProtocolError extends Error {
 
 export function parseBrowserRequest(source: string): BrowserRequest {
   if (Buffer.byteLength(source, "utf8") > MAX_BROWSER_MESSAGE_BYTES) {
-    throw new ProtocolError("message_too_large", "消息太大。上限是 2 MiB。");
+    throw new ProtocolError("message_too_large", "The message is too large. The limit is 2 MiB.");
   }
 
   let value: unknown;
   try {
     value = JSON.parse(source);
   } catch {
-    throw new ProtocolError("invalid_json", "消息不是有效的 JSON。");
+    throw new ProtocolError("invalid_json", "The message is not valid JSON.");
   }
   if (!isObject(value)) {
-    throw new ProtocolError("invalid_message", "消息必须是 JSON 对象。");
+    throw new ProtocolError("invalid_message", "The message must be a JSON object.");
   }
 
   const requestId = readBoundedString(value.requestId, 128);
   if (!requestId) {
-    throw new ProtocolError("invalid_request_id", "请求 ID 不能为空。");
+    throw new ProtocolError("invalid_request_id", "The request ID must not be empty.");
   }
   if (typeof value.type !== "string") {
-    throw new ProtocolError("invalid_message", "消息缺少类型。", requestId);
+    throw new ProtocolError("invalid_message", "The message is missing a type.", requestId);
   }
 
   switch (value.type) {
@@ -163,48 +163,48 @@ export function parseBrowserRequest(source: string): BrowserRequest {
       return {
         type: "sessions.list",
         requestId,
-        projectId: requireString(value.projectId, "项目 ID", requestId, 1_024),
+        projectId: requireString(value.projectId, "project ID", requestId, 1_024),
         cursor: value.cursor === undefined || value.cursor === null
           ? null
-          : requireString(value.cursor, "分页标记", requestId, 4_096),
+          : requireString(value.cursor, "pagination cursor", requestId, 4_096),
         view: readSessionView(value.view, requestId),
-        searchTerm: readOptionalString(value.searchTerm, "搜索文字", requestId, 256),
+        searchTerm: readOptionalString(value.searchTerm, "search text", requestId, 256),
       };
     case "sessions.mutate":
       return {
         type: "sessions.mutate",
         requestId,
-        projectId: requireString(value.projectId, "项目 ID", requestId, 1_024),
-        sessionIds: requireStringArray(value.sessionIds, "会话 ID", requestId, 1_000, 1_024),
+        projectId: requireString(value.projectId, "project ID", requestId, 1_024),
+        sessionIds: requireStringArray(value.sessionIds, "session ID", requestId, 1_000, 1_024),
         action: requireSessionMutationAction(value.action, requestId),
       };
     case "session.start":
       return {
         type: "session.start",
         requestId,
-        projectId: requireString(value.projectId, "项目 ID", requestId, 1_024),
+        projectId: requireString(value.projectId, "project ID", requestId, 1_024),
       };
     case "session.resume":
       return {
         type: "session.resume",
         requestId,
-        projectId: requireString(value.projectId, "项目 ID", requestId, 1_024),
-        sessionId: requireString(value.sessionId, "会话 ID", requestId, 1_024),
+        projectId: requireString(value.projectId, "project ID", requestId, 1_024),
+        sessionId: requireString(value.sessionId, "session ID", requestId, 1_024),
       };
     case "session.mark":
       return {
         type: "session.mark",
         requestId,
-        projectId: requireString(value.projectId, "项目 ID", requestId, 1_024),
-        sessionId: requireString(value.sessionId, "会话 ID", requestId, 1_024),
-        marked: requireBoolean(value.marked, "钉住", requestId),
+        projectId: requireString(value.projectId, "project ID", requestId, 1_024),
+        sessionId: requireString(value.sessionId, "session ID", requestId, 1_024),
+        marked: requireBoolean(value.marked, "marked", requestId),
       };
     case "session.rename":
       return {
         type: "session.rename",
         requestId,
-        projectId: requireString(value.projectId, "项目 ID", requestId, 1_024),
-        sessionId: requireString(value.sessionId, "会话 ID", requestId, 1_024),
+        projectId: requireString(value.projectId, "project ID", requestId, 1_024),
+        sessionId: requireString(value.sessionId, "session ID", requestId, 1_024),
         title: requireSessionTitle(value.title, requestId),
       };
     case "history.older":
@@ -213,7 +213,7 @@ export function parseBrowserRequest(source: string): BrowserRequest {
       return {
         type: "events.resume",
         requestId,
-        afterSeq: requireNonNegativeInt(value.afterSeq, "事件序号", requestId),
+        afterSeq: requireNonNegativeInt(value.afterSeq, "event sequence number", requestId),
       };
     case "commands.list":
       return { type: "commands.list", requestId };
@@ -228,8 +228,8 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         type: "command.run",
         requestId,
         command: requireCommand(value.command, requestId),
-        option: readOptionalString(value.option, "命令选项", requestId, 256),
-        argument: readOptionalString(value.argument, "命令参数", requestId, 2_048),
+        option: readOptionalString(value.option, "command option", requestId, 256),
+        argument: readOptionalString(value.argument, "command argument", requestId, 2_048),
       };
     case "permissions.always-approve.toggle":
       return { type: "permissions.always-approve.toggle", requestId };
@@ -237,15 +237,15 @@ export function parseBrowserRequest(source: string): BrowserRequest {
       return {
         type: "attachment.ticket.create",
         requestId,
-        originalName: requireString(value.originalName, "文件名", requestId, 1_024),
+        originalName: requireString(value.originalName, "file name", requestId, 1_024),
         declaredMime: readOptionalString(value.declaredMime, "MIME", requestId, 255) ??
           "application/octet-stream",
-        expectedSize: requireNonNegativeInt(value.expectedSize, "文件大小", requestId),
+        expectedSize: requireNonNegativeInt(value.expectedSize, "file size", requestId),
       };
     case "message.send": {
       const attachmentIds = readOptionalStringArray(
         value.attachmentIds,
-        "附件 ID",
+        "attachment ID",
         requestId,
         100,
         128,
@@ -254,7 +254,7 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         type: "message.send",
         requestId,
         text: requireMessageText(value.text, requestId, attachmentIds.length > 0),
-        clientMessageId: requireString(value.clientMessageId, "客户端消息 ID", requestId, 128),
+        clientMessageId: requireString(value.clientMessageId, "client message ID", requestId, 128),
         attachmentIds,
       };
     }
@@ -263,25 +263,25 @@ export function parseBrowserRequest(source: string): BrowserRequest {
     case "approval.answer": {
       const decision = value.decision;
       if (decision !== "approve_once" && decision !== "decline") {
-        throw new ProtocolError("invalid_decision", "审批选择无法识别。", requestId);
+        throw new ProtocolError("invalid_decision", "The approval decision is not recognized.", requestId);
       }
       return {
         type: "approval.answer",
         requestId,
-        approvalId: requireString(value.approvalId, "审批 ID", requestId, 256),
+        approvalId: requireString(value.approvalId, "approval ID", requestId, 256),
         decision,
-        optionId: readOptionalString(value.optionId, "选项 ID", requestId, 256),
+        optionId: readOptionalString(value.optionId, "option ID", requestId, 256),
       };
     }
     default:
-      throw new ProtocolError("unknown_message_type", "不支持这种消息类型。", requestId);
+      throw new ProtocolError("unknown_message_type", "This message type is not supported.", requestId);
   }
 }
 
 function readSessionView(value: unknown, requestId: string): BrowserSessionView {
   if (value === undefined || value === null) return "active";
   if (value === "active" || value === "archived" || value === "trash") return value;
-  throw new ProtocolError("invalid_field", "会话列表类型无法识别。", requestId);
+  throw new ProtocolError("invalid_field", "The session list view is not recognized.", requestId);
 }
 
 function requireSessionMutationAction(
@@ -295,16 +295,16 @@ function requireSessionMutationAction(
   ) {
     return value;
   }
-  throw new ProtocolError("invalid_field", "会话整理操作无法识别。", requestId);
+  throw new ProtocolError("invalid_field", "The session organization action is not recognized.", requestId);
 }
 
 function requireCommand(value: unknown, requestId: string): CommandName {
   if (typeof value !== "string") {
-    throw new ProtocolError("unknown_command", "不支持这个斜杠命令。", requestId);
+    throw new ProtocolError("unknown_command", "This slash command is not supported.", requestId);
   }
   const command = canonicalCommandName(value);
   if (!command) {
-    throw new ProtocolError("unknown_command", "不支持这个斜杠命令。", requestId);
+    throw new ProtocolError("unknown_command", "This slash command is not supported.", requestId);
   }
   return command;
 }
@@ -319,7 +319,7 @@ function requireStringArray(
   if (!Array.isArray(value) || value.length === 0 || value.length > maxItems) {
     throw new ProtocolError(
       "invalid_field",
-      `${label}列表不能为空，且一次最多 ${maxItems} 项。`,
+      `${label} list must not be empty and may contain at most ${maxItems} items.`,
       requestId,
     );
   }
@@ -338,7 +338,7 @@ function readOptionalStringArray(
   if (!Array.isArray(value) || value.length > maxItems) {
     throw new ProtocolError(
       "invalid_field",
-      `${label}列表一次最多 ${maxItems} 项。`,
+      `${label} list may contain at most ${maxItems} items.`,
       requestId,
     );
   }
@@ -366,11 +366,11 @@ function requireMessageText(
 ): string {
   const text = allowEmpty && value === ""
     ? ""
-    : requireString(value, "消息", requestId, MAX_MESSAGE_TEXT_LENGTH);
+    : requireString(value, "message", requestId, MAX_MESSAGE_TEXT_LENGTH);
   if (Buffer.byteLength(text, "utf8") > MAX_MESSAGE_TEXT_BYTES) {
     throw new ProtocolError(
       "message_too_large",
-      "消息太长。请拆成几条再发送。",
+      "The message is too long. Split it into multiple messages.",
       requestId,
     );
   }
@@ -379,31 +379,31 @@ function requireMessageText(
 
 function requireSessionTitle(value: unknown, requestId: string): string {
   if (typeof value !== "string") {
-    throw new ProtocolError("invalid_field", "会话名称不能为空。", requestId);
+    throw new ProtocolError("invalid_field", "The session name must not be empty.", requestId);
   }
   const title = value.trim();
   if (!title) {
-    throw new ProtocolError("invalid_field", "会话名称不能为空。", requestId);
+    throw new ProtocolError("invalid_field", "The session name must not be empty.", requestId);
   }
   if (title.length > MAX_SESSION_TITLE_LENGTH) {
-    throw new ProtocolError("invalid_field", "会话名称太长。", requestId);
+    throw new ProtocolError("invalid_field", "The session name is too long.", requestId);
   }
   if (/[\r\n]/u.test(title)) {
-    throw new ProtocolError("invalid_field", "会话名称不能包含换行。", requestId);
+    throw new ProtocolError("invalid_field", "The session name must not contain line breaks.", requestId);
   }
   return title;
 }
 
 function requireBoolean(value: unknown, label: string, requestId: string): boolean {
   if (typeof value !== "boolean") {
-    throw new ProtocolError("invalid_field", `${label}必须是布尔值。`, requestId);
+    throw new ProtocolError("invalid_field", `${label} must be a boolean.`, requestId);
   }
   return value;
 }
 
 function requireNonNegativeInt(value: unknown, label: string, requestId: string): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new ProtocolError("invalid_field", `${label}必须是非负整数。`, requestId);
+    throw new ProtocolError("invalid_field", `${label} must be a non-negative integer.`, requestId);
   }
   return value;
 }
@@ -416,7 +416,7 @@ function requireString(
 ): string {
   const result = readBoundedString(value, maxLength);
   if (!result) {
-    throw new ProtocolError("invalid_field", `${label}不能为空或过长。`, requestId);
+    throw new ProtocolError("invalid_field", `${label} must not be empty or too long.`, requestId);
   }
   return result;
 }

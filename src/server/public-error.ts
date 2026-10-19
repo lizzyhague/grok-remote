@@ -4,11 +4,11 @@
  */
 export function publicErrorMessage(error: unknown): string {
   if (!(error instanceof Error)) {
-    return "请求失败。";
+    return "The request failed.";
   }
   if (isSystemError(error)) {
-    console.error(`未向浏览器透传的系统错误：${error.message}`);
-    return "服务器无法访问本地文件，请查看服务日志。";
+    console.error(`System error hidden from browser: ${error.message}`);
+    return "The server could not access a local file. Check the service log.";
   }
   return redactPaths(error.message);
 }
@@ -19,5 +19,5 @@ function isSystemError(error: Error): boolean {
 }
 
 function redactPaths(message: string): string {
-  return message.replace(/(?:\/[\w.@+-]+){2,}\/?/g, "<路径>");
+  return message.replace(/(?:\/[\w.@+-]+){2,}\/?/g, "<path>");
 }

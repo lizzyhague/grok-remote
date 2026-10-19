@@ -30,7 +30,7 @@ test("duplicate clientMessageId returns the same accepted turn", async (context)
     grokBin: "grok",
     availableMemory: ampleMemory,
     spawnAgent: () => {
-      throw new Error("不应启动 Worker");
+      throw new Error("The worker must not start.");
     },
   });
   context.after(async () => {
@@ -68,12 +68,12 @@ test("rejects a session that belongs to a different project before leasing attac
     grokBin: "grok",
     availableMemory: ampleMemory,
     spawnAgent: () => {
-      throw new Error("不应启动 Worker");
+      throw new Error("The worker must not start.");
     },
     uploads: {
       async createLease() {
         leaseCalls += 1;
-        throw new Error("不应创建租约");
+        throw new Error("A lease must not be created.");
       },
       async renewLease(leaseId) {
         return { leaseId, expiresAtMs: Date.now() + 60_000 };
@@ -361,7 +361,7 @@ for (const phase of ["session/new", "session/resume", "session/prompt"]) {
     assert.equal(locks.acquire("projects/demo", "page-a", "a"), false);
     const duplicate = await runtime.sendMessage(input);
     assert.equal(duplicate.accepted, true);
-    await assert.rejects(runtime.sendMessage({ ...input, clientMessageId: "second" }), /正在结束任务/u);
+    await assert.rejects(runtime.sendMessage({ ...input, clientMessageId: "second" }), /is stopping a task/u);
     fake.reply(phase, phase === "session/new" ? { sessionId: "grok-session" } : { stopReason: "end_turn" });
     await fake.waitForRequest("session/close");
     assert.deepEqual(statuses, ["running"]);

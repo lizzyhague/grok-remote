@@ -270,7 +270,7 @@ function applyUpdate(
     const stop = stringField(update.stop_reason) ?? stringField(update.stopReason);
     if (stop === "cancelled") {
       turn.status = "interrupted";
-      turn.error = "本轮已取消。";
+      turn.error = "This turn was cancelled.";
     } else if (stop && stop !== "end_turn") {
       turn.status = "failed";
       turn.error = stop;

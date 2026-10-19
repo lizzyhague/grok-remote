@@ -40,9 +40,9 @@ export async function readAvailableMemory(
       if (bytes !== undefined) {
         return { availableBytes: bytes, platform, source: "linux-meminfo" };
       }
-      return degraded(platform, "/proc/meminfo 中没有可用的 MemAvailable 数值", options);
+      return degraded(platform, "/proc/meminfo has no usable MemAvailable value", options);
     } catch (error) {
-      return degraded(platform, `读取 /proc/meminfo 失败（${errorSummary(error)}）`, options);
+      return degraded(platform, `reading /proc/meminfo failed (${errorSummary(error)})`, options);
     }
   }
 
@@ -53,13 +53,13 @@ export async function readAvailableMemory(
       if (parsed.ok) {
         return { availableBytes: parsed.availableBytes, platform, source: "darwin-vm-stat" };
       }
-      return degraded(platform, `vm_stat 输出缺少${parsed.missing}`, options);
+      return degraded(platform, `vm_stat output is missing ${parsed.missing}`, options);
     } catch (error) {
-      return degraded(platform, `执行 vm_stat 失败（${errorSummary(error)}）`, options);
+      return degraded(platform, `running vm_stat failed (${errorSummary(error)})`, options);
     }
   }
 
-  return degraded(platform, `没有为 ${platform} 实现专用的内存读数`, options);
+  return degraded(platform, `no platform-specific memory reading is implemented for ${platform}`, options);
 }
 
 export function parseLinuxAvailableBytes(meminfo: string): number | undefined {
@@ -75,10 +75,10 @@ export type DarwinMemoryParse =
 
 export function parseDarwinAvailableBytes(vmStat: string, totalBytes: number): DarwinMemoryParse {
   if (!Number.isSafeInteger(totalBytes) || totalBytes <= 0) {
-    return { ok: false, missing: "可用的物理内存总量" };
+    return { ok: false, missing: "total available physical memory" };
   }
   const pageSize = parsePageSize(vmStat);
-  if (pageSize === undefined) return { ok: false, missing: "页大小" };
+  if (pageSize === undefined) return { ok: false, missing: "page size" };
 
   const fields = [
     { label: "Anonymous pages", name: " Anonymous pages" },
@@ -93,23 +93,23 @@ export function parseDarwinAvailableBytes(vmStat: string, totalBytes: number): D
   }
 
   const occupiedBytes = occupiedPages * pageSize;
-  if (!Number.isSafeInteger(occupiedBytes)) return { ok: false, missing: "可信的页数" };
+  if (!Number.isSafeInteger(occupiedBytes)) return { ok: false, missing: "reliable page counts" };
   return { ok: true, availableBytes: Math.max(0, totalBytes - occupiedBytes) };
 }
 
 export function memoryLowMessage(reading: MemoryReading, minimumBytes: number): string {
-  return `主机可用内存不足，无法再启动 Grok Worker。` +
-    `当前可用 ${mebibytes(reading.availableBytes)} MiB，门槛 ${mebibytes(minimumBytes)} MiB` +
-    `（平台 ${reading.platform}，读数来源 ${sourceLabel(reading.source)}）。` +
-    `内存回落后会自动恢复；如果这台主机本来就该在这个水位上工作，` +
-    `可以调整 GROK_REMOTE_MIN_FREE_MEMORY_MB。`;
+  return `The host does not have enough available memory to start another Grok worker. ` +
+    `${mebibytes(reading.availableBytes)} MiB is available; the threshold is ${mebibytes(minimumBytes)} MiB ` +
+    `(platform: ${reading.platform}; source: ${sourceLabel(reading.source)}). ` +
+    `New workers will be allowed automatically when memory recovers. If this host is expected to operate at ` +
+    `this level, adjust GROK_REMOTE_MIN_FREE_MEMORY_MB.`;
 }
 
 export function memoryDegradedMessage(reading: MemoryReading, minimumBytes: number): string {
-  return `主机内存读数不可靠，本次 Grok Worker 已放行。` +
-    `平台 ${reading.platform} 的专用读数失败：${reading.degradedReason ?? "原因未知"}；` +
-    `os.freemem() 读到 ${mebibytes(reading.availableBytes)} MiB，但它不包含可回收缓存，` +
-    `因此 ${mebibytes(minimumBytes)} MiB 的门槛暂不生效。`;
+  return `The host memory reading is unreliable, so this Grok worker was allowed to start. ` +
+    `The platform-specific reading for ${reading.platform} failed: ${reading.degradedReason ?? "unknown reason"}; ` +
+    `os.freemem() reported ${mebibytes(reading.availableBytes)} MiB, but excludes reclaimable cache, ` +
+    `so the ${mebibytes(minimumBytes)} MiB threshold is not enforced for this attempt.`;
 }
 
 function degraded(
@@ -151,7 +151,7 @@ function parsePageCount(vmStat: string, label: string): number | undefined {
 }
 
 function sourceLabel(source: MemorySource): string {
-  if (source === "linux-meminfo") return "/proc/meminfo 的 MemAvailable";
+  if (source === "linux-meminfo") return "/proc/meminfo MemAvailable";
   if (source === "darwin-vm-stat") return "vm_stat";
   return "os.freemem()";
 }

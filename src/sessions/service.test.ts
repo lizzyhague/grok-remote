@@ -145,7 +145,7 @@ test("moves an active session to trash and restores it to the active list", asyn
 
   await assert.rejects(
     () => service.open(projectId, "session-keep"),
-    /回收站/u,
+    /trash/u,
   );
 
   assert.deepEqual(await service.restoreTrash(projectId, ["session-keep"]), {
@@ -186,7 +186,7 @@ test("refuses to permanently delete a session that is not in trash", async (cont
   const service = new SessionService(catalog, disk, store, layout);
   const result = await service.deleteTrash(projectId, ["session-keep"]);
   assert.equal(result.succeeded.length, 0);
-  assert.match(result.failed[0]?.message ?? "", /只能永久删除回收站里的会话/u);
+  assert.match(result.failed[0]?.message ?? "", /Only sessions in trash/u);
   assert.equal((await service.list(projectId)).sessions[0]?.id, "session-keep");
 });
 
@@ -266,7 +266,7 @@ test("does not archive a session while its task is active", async (context) => {
   });
   const result = await service.archive(projectId, ["session-keep"]);
   assert.equal(result.succeeded.length, 0);
-  assert.match(result.failed[0]?.message ?? "", /仍有任务正在运行/u);
+  assert.match(result.failed[0]?.message ?? "", /task is still running/u);
 });
 
 test("refuses to mutate a pending session", async (context) => {
@@ -275,7 +275,7 @@ test("refuses to mutate a pending session", async (context) => {
   const opened = await service.start(projectId);
   const result = await service.moveToTrash(projectId, [opened.session.id], "active");
   assert.equal(result.succeeded.length, 0);
-  assert.match(result.failed[0]?.message ?? "", /还没有保存/u);
+  assert.match(result.failed[0]?.message ?? "", /has not been saved/u);
 });
 
 test("pins marked sessions across projects and omits them from the directory page", async (context) => {
@@ -338,11 +338,11 @@ test("refuses to prepare rename meta for pending or foreign sessions", async (co
   const opened = await service.start(projectId);
   await assert.rejects(
     () => service.ensureMeta(projectId, opened.session.id),
-    /还没有保存/u,
+    /has not been saved/u,
   );
   await assert.rejects(
     () => service.ensureMeta(projectId, "missing-session"),
-    /找不到这个会话/u,
+    /could not be found/u,
   );
 
   const betaPath = path.join(path.dirname(projectPath), "beta");
@@ -351,7 +351,7 @@ test("refuses to prepare rename meta for pending or foreign sessions", async (co
   await writeSummary(path.join(betaGroup, "session-beta"), "session-beta", betaPath, "Other project");
   await assert.rejects(
     () => service.ensureMeta(projectId, "session-beta"),
-    /不属于当前项目/u,
+    /does not belong to the current project/u,
   );
 });
 
@@ -361,7 +361,7 @@ test("refuses to pin a pending session", async (context) => {
   const opened = await service.start(projectId);
   await assert.rejects(
     () => service.setMarked(projectId, opened.session.id, true),
-    /还没有保存/u,
+    /has not been saved/u,
   );
 });
 

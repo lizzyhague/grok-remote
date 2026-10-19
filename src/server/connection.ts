@@ -238,7 +238,7 @@ export class BrowserConnection {
         return this.#toggleAlwaysApprove();
       case "attachment.ticket.create": {
         if (!this.#services.uploads) {
-          throw new BrowserRequestError("uploads_unavailable", "当前后端没有启用附件服务。");
+          throw new BrowserRequestError("uploads_unavailable", "This backend does not have attachments enabled.");
         }
         return this.#services.uploads.createTicket({
           caller: "grok",
@@ -264,7 +264,7 @@ export class BrowserConnection {
     action: "archive" | "unarchive" | "trash-active" | "trash-archived" | "restore-trash" | "delete-trash",
   ): Promise<SessionMutationResult> {
     if (!this.#services.locks.acquire(projectId, this.#id, sessionIds[0] ?? "mutate")) {
-      throw new BrowserRequestError("project_busy", "这个项目正在执行任务，暂时不能整理会话。");
+      throw new BrowserRequestError("project_busy", "A task is running in this project, so sessions cannot be organized right now.");
     }
     try {
       const result = action === "archive"
@@ -325,7 +325,7 @@ export class BrowserConnection {
     const sessionId = this.#requireSession();
     const projectId = this.#projectId!;
     if (!this.#services.locks.acquire(projectId, this.#id, sessionId)) {
-      throw new BrowserRequestError("project_busy", "这个项目已有另一个任务正在运行。");
+      throw new BrowserRequestError("project_busy", "Another task is already running in this project.");
     }
     try {
       const result = await this.#services.turns.sendMessage({
@@ -349,7 +349,7 @@ export class BrowserConnection {
     const projectId = this.#projectId!;
     this.#services.locks.reclaim(projectId, this.#id, sessionId);
     if (!this.#services.locks.owns(projectId, this.#id, sessionId)) {
-      throw new BrowserRequestError("project_busy", "当前设备不能停止这个任务。");
+      throw new BrowserRequestError("project_busy", "This device cannot stop this task.");
     }
     await this.#services.turns.stop(sessionId);
     return { stopped: true };
@@ -369,7 +369,7 @@ export class BrowserConnection {
     }
     const projectId = this.#projectId!;
     if (!this.#services.locks.acquire(projectId, this.#id, sessionId)) {
-      throw new BrowserRequestError("project_busy", "这个项目已有另一个任务正在运行。");
+      throw new BrowserRequestError("project_busy", "Another task is already running in this project.");
     }
     try {
       const result = await this.#services.commands.run(
@@ -391,7 +391,7 @@ export class BrowserConnection {
   ): Promise<unknown> {
     const ok = await this.#services.turns.answerApproval(approvalId, decision, optionId);
     if (!ok) {
-      throw new BrowserRequestError("approval_missing", "这个审批已经结束。");
+      throw new BrowserRequestError("approval_missing", "This approval has already ended.");
     }
     return { answered: true };
   }
@@ -415,7 +415,7 @@ export class BrowserConnection {
 
   #requireSession(): string {
     if (!this.#sessionId || !this.#projectId) {
-      throw new BrowserRequestError("no_session", "请先打开一个会话。");
+      throw new BrowserRequestError("no_session", "Open a session first.");
     }
     return this.#sessionId;
   }
