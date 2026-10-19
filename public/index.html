@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#161413">
     <meta name="color-scheme" content="dark light">
-    <meta name="description" content="通过私人网络使用主机上的 Grok">
+    <meta name="description" content="Use Grok on a host over a private network.">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192">
     <script src="/theme.js"></script>
@@ -29,17 +29,17 @@
     </section>
 
     <div id="app-view" class="app-view" data-sidebar-collapsed="false" data-mobile-sidebar-open="false" hidden>
-      <aside id="session-sidebar" class="session-sidebar" aria-label="会话导航">
+      <aside id="session-sidebar" class="session-sidebar" aria-label="会话导航" data-i18n-aria-label="sidebar.navigation">
         <div class="sidebar-heading">
           <span class="sidebar-brand">
             <svg class="sidebar-brand-icon" viewBox="0 0 512 512" aria-hidden="true"><rect x="132" y="149" width="248" height="46" rx="23" fill="currentColor"/><rect x="226" y="233" width="154" height="46" rx="23" fill="currentColor"/><rect x="132" y="317" width="248" height="46" rx="23" fill="currentColor"/><circle cx="168" cy="256" r="27" fill="currentColor"/></svg>
             <strong>Grok Remote</strong>
           </span>
           <div class="sidebar-heading-actions">
-            <button id="appearance-settings-button" class="quiet small icon-button" type="button" aria-label="外观设置" title="外观设置">
+            <button id="appearance-settings-button" class="quiet small icon-button" type="button" aria-label="外观设置" title="外观设置" data-i18n-aria-label="settings.appearance" data-i18n-title="settings.appearance">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/></svg>
             </button>
-            <button id="collapse-sidebar-button" class="quiet small icon-button" type="button" aria-label="收起会话列表" title="收起会话列表">
+            <button id="collapse-sidebar-button" class="quiet small icon-button" type="button" aria-label="收起会话列表" title="收起会话列表" data-i18n-aria-label="sidebar.collapse" data-i18n-title="sidebar.collapse">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
             </button>
           </div>
@@ -48,33 +48,33 @@
         <div class="project-controls">
           <div class="project-row">
             <label>
-              <span class="visually-hidden">项目</span>
-              <select id="project-select" aria-label="项目"></select>
+              <span class="visually-hidden" data-i18n="sidebar.project">项目</span>
+              <select id="project-select" aria-label="项目" data-i18n-aria-label="sidebar.project"></select>
               <svg class="directory-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" transform="rotate(-90 12 12)"/></svg>
             </label>
-            <button id="new-session-button" class="quiet small icon-button create-icon-button" type="button" aria-label="新会话" title="新会话">
+            <button id="new-session-button" class="quiet small icon-button create-icon-button" type="button" aria-label="新会话" title="新会话" data-i18n-aria-label="sidebar.newSession" data-i18n-title="sidebar.newSession">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 17.5A3.5 3.5 0 0 1 3 14V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3v3"/><path d="m5 17.5-1 3.5 4-2h3m7-5v6m-3-3h6"/></svg>
             </button>
           </div>
         </div>
 
         <label class="session-search">
-          <span class="visually-hidden">搜索会话</span>
-          <input id="session-search-input" type="search" maxlength="256" placeholder="搜索会话">
+          <span class="visually-hidden" data-i18n="sidebar.search">搜索会话</span>
+          <input id="session-search-input" type="search" maxlength="256" placeholder="搜索会话" data-i18n-placeholder="sidebar.search">
         </label>
 
         <div class="session-list-heading">
-          <button id="session-view-back-button" class="quiet small icon-button" type="button" aria-label="返回最近会话" title="返回最近会话" hidden>
+          <button id="session-view-back-button" class="quiet small icon-button" type="button" aria-label="返回最近会话" title="返回最近会话" data-i18n-aria-label="sidebar.backToRecent" data-i18n-title="sidebar.backToRecent" hidden>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
           </button>
           <strong id="session-view-title">最近会话</strong>
-          <button id="archived-sessions-button" class="quiet small icon-button" type="button" aria-label="已归档" title="已归档">
+          <button id="archived-sessions-button" class="quiet small icon-button" type="button" aria-label="已归档" title="已归档" data-i18n-aria-label="sidebar.archived" data-i18n-title="sidebar.archived">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
           </button>
-          <button id="trash-sessions-button" class="quiet small icon-button" type="button" aria-label="回收站" title="回收站">
+          <button id="trash-sessions-button" class="quiet small icon-button" type="button" aria-label="回收站" title="回收站" data-i18n-aria-label="sidebar.trash" data-i18n-title="sidebar.trash">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
           </button>
-          <button id="select-sessions-button" class="quiet small icon-button" type="button" aria-label="选择" title="选择">
+          <button id="select-sessions-button" class="quiet small icon-button" type="button" aria-label="选择" title="选择" data-i18n-aria-label="sidebar.select" data-i18n-title="sidebar.select">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="m9 12 2 2 4-4"/></svg>
           </button>
         </div>
@@ -82,16 +82,16 @@
         <div id="selection-heading" class="selection-heading" hidden></div>
 
         <div id="session-list" class="session-list" role="list" aria-live="polite"></div>
-        <button id="load-more-sessions-button" class="quiet load-more-sessions" type="button" hidden>加载更多</button>
+        <button id="load-more-sessions-button" class="quiet load-more-sessions" type="button" hidden data-i18n="sidebar.loadMore">加载更多</button>
 
       </aside>
 
-      <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭会话列表" tabindex="-1"></button>
+      <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭会话列表" tabindex="-1" data-i18n-aria-label="sidebar.close"></button>
 
       <section class="conversation-shell">
         <header class="app-header">
           <div class="conversation-heading">
-            <button id="open-sidebar-button" class="quiet sidebar-open-button" type="button" aria-label="打开会话列表">☰</button>
+            <button id="open-sidebar-button" class="quiet sidebar-open-button" type="button" aria-label="打开会话列表" data-i18n-aria-label="sidebar.open">☰</button>
             <div>
               <strong id="current-session-title">Grok Remote</strong>
               <span id="connection-status" class="connection-status" data-state="connecting">正在连接</span>
@@ -101,10 +101,10 @@
 
         <main id="timeline" class="timeline" aria-live="polite">
           <div id="history-loader" class="history-loader" hidden>
-            <button id="load-older-button" class="quiet small" type="button">加载更早</button>
+            <button id="load-older-button" class="quiet small" type="button" data-i18n="timeline.loadOlder">加载更早</button>
           </div>
           <div id="empty-state" class="empty-state">
-            <p>选择以前的会话，或者新建一个会话。</p>
+            <p data-i18n="timeline.empty">选择以前的会话，或者新建一个会话。</p>
           </div>
           <div id="thinking-indicator" class="thinking-indicator" role="status" hidden>
             <span id="thinking-label">正在思考</span>
@@ -118,7 +118,7 @@
           <span id="notice-text"></span>
           <span class="notice-actions">
             <button id="notice-action-button" class="quiet small" type="button" hidden></button>
-            <button id="notice-close-button" class="quiet small" type="button" aria-label="关闭提示">关闭</button>
+            <button id="notice-close-button" class="quiet small" type="button" aria-label="关闭提示" data-i18n-aria-label="notice.close" data-i18n="common.close">关闭</button>
           </span>
         </div>
 
@@ -133,17 +133,22 @@
               maxlength="524288"
               placeholder="先选择或新建会话"
               aria-label="消息"
+              data-i18n-placeholder="composer.placeholder"
+              data-i18n-aria-label="composer.message"
               disabled
             ></textarea>
             <div class="composer-actions">
-              <div class="composer-action-scroll" aria-label="快捷操作">
+              <div class="composer-action-scroll" aria-label="快捷操作" data-i18n-aria-label="composer.actions">
                 <button
                   id="attachment-button"
                   class="quiet composer-shortcut"
                   type="button"
                   aria-label="选择附件"
                   title="选择一个或多个附件"
+                  data-i18n-aria-label="composer.attachment"
+                  data-i18n-title="composer.attachmentTitle"
                   disabled
+                  data-i18n="composer.attachmentLabel"
                 >附件</button>
                 <button
                   id="command-menu-button"
@@ -151,6 +156,8 @@
                   type="button"
                   aria-label="打开 Grok 命令"
                   title="打开 Grok 命令"
+                  data-i18n-aria-label="composer.openCommands"
+                  data-i18n-title="composer.openCommands"
                   disabled
                 >/</button>
                 <button id="rewind-shortcut" class="quiet composer-shortcut" type="button" disabled>rewind</button>
@@ -162,8 +169,8 @@
                   disabled
                 >always-approve</button>
               </div>
-              <span class="composer-hint">电脑可按 Ctrl / ⌘ + Enter 发送</span>
-              <button id="task-button" class="primary task-button" type="submit" data-action="send" aria-label="发送" title="发送" disabled>
+              <span class="composer-hint" data-i18n="composer.sendHint">电脑可按 Ctrl / ⌘ + Enter 发送</span>
+              <button id="task-button" class="primary task-button" type="submit" data-action="send" aria-label="发送" title="发送" data-i18n-aria-label="composer.send" data-i18n-title="composer.send" disabled>
                 <svg class="task-send-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3M8 3 4 7M8 3l4 4"/></svg>
                 <span class="task-stop-icon" aria-hidden="true"></span>
               </button>
@@ -175,24 +182,24 @@
 
     <dialog id="app-alert-dialog" class="app-alert-dialog" aria-labelledby="app-alert-title" aria-describedby="app-alert-message">
       <form method="dialog">
-        <h2 id="app-alert-title">提示</h2>
+        <h2 id="app-alert-title" data-i18n="alert.title">提示</h2>
         <p id="app-alert-message"></p>
         <div class="app-alert-actions">
-          <button class="primary" type="submit" autofocus>知道了</button>
+          <button class="primary" type="submit" autofocus data-i18n="common.gotIt">知道了</button>
         </div>
       </form>
     </dialog>
     <dialog id="appearance-settings-dialog" class="app-alert-dialog appearance-settings-dialog" aria-labelledby="appearance-settings-title">
       <form method="dialog">
         <div class="appearance-settings-head">
-          <h2 id="appearance-settings-title">外观</h2>
-          <button class="quiet small" type="submit" aria-label="关闭">关闭</button>
+          <h2 id="appearance-settings-title" data-i18n="settings.theme">外观</h2>
+          <button class="quiet small" type="submit" aria-label="关闭" data-i18n-aria-label="common.close" data-i18n="common.close">关闭</button>
         </div>
         <p data-i18n="settings.browserOnly">只影响当前浏览器。</p>
-        <div id="theme-options" class="theme-options" role="group" aria-label="主题">
-          <button type="button" data-theme-choice="system" aria-pressed="false" aria-label="跟随系统" title="跟随系统"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
-          <button type="button" data-theme-choice="light" aria-pressed="false" aria-label="浅色" title="浅色"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.6"/><path d="M12 2.2v1.3M12 20.5v1.3M2.2 12h1.3M20.5 12h1.3M5.1 5.1l.9.9M18 18l.9.9M5.1 18.9l.9-.9M18 6l.9-.9"/></svg></button>
-          <button type="button" data-theme-choice="dark" aria-pressed="false" aria-label="深色" title="深色"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.7a10 10 0 1 0 9.5 14 8 8 0 0 1-9.5-14z"/></svg></button>
+        <div id="theme-options" class="theme-options" role="group" aria-label="主题" data-i18n-aria-label="settings.themeGroup">
+          <button type="button" data-theme-choice="system" aria-pressed="false" aria-label="跟随系统" title="跟随系统" data-i18n-aria-label="settings.themeSystem" data-i18n-title="settings.themeSystem"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
+          <button type="button" data-theme-choice="light" aria-pressed="false" aria-label="浅色" title="浅色" data-i18n-aria-label="settings.themeLight" data-i18n-title="settings.themeLight"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.6"/><path d="M12 2.2v1.3M12 20.5v1.3M2.2 12h1.3M20.5 12h1.3M5.1 5.1l.9.9M18 18l.9.9M5.1 18.9l.9-.9M18 6l.9-.9"/></svg></button>
+          <button type="button" data-theme-choice="dark" aria-pressed="false" aria-label="深色" title="深色" data-i18n-aria-label="settings.themeDark" data-i18n-title="settings.themeDark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.7a10 10 0 1 0 9.5 14 8 8 0 0 1-9.5-14z"/></svg></button>
         </div>
         <div id="language-setting" class="language-setting">
           <h3 id="language-label" data-i18n="settings.language">语言</h3>
@@ -213,13 +220,11 @@
       aria-describedby="confirm-dialog-message"
     >
       <form id="confirm-dialog-form" method="dialog" class="alert-card">
-        <h2 id="confirm-dialog-title">确认</h2>
+        <h2 id="confirm-dialog-title" data-i18n="confirm.title">确认</h2>
         <div id="confirm-dialog-message" class="confirm-dialog-copy"></div>
         <div class="alert-actions">
-          <button id="confirm-dialog-cancel-button" class="quiet" type="button">取消</button>
-          <button id="confirm-dialog-accept-button" class="primary" type="submit" value="confirm">
-            确定
-          </button>
+          <button id="confirm-dialog-cancel-button" class="quiet" type="button" data-i18n="common.cancel">取消</button>
+          <button id="confirm-dialog-accept-button" class="primary" type="submit" value="confirm" data-i18n="common.confirm">确定</button>
         </div>
       </form>
     </dialog>
@@ -229,21 +234,22 @@
       aria-labelledby="rename-session-title"
     >
       <form id="rename-session-form" method="dialog" class="rename-card">
-        <h2 id="rename-session-title">重命名会话</h2>
+        <h2 id="rename-session-title" data-i18n="rename.title">重命名会话</h2>
         <label class="rename-field">
-          <span class="visually-hidden">会话名称</span>
+          <span class="visually-hidden" data-i18n="rename.label">会话名称</span>
           <input
             id="rename-session-input"
             type="text"
             maxlength="160"
             autocomplete="off"
             placeholder="输入新的会话名称"
+            data-i18n-placeholder="rename.placeholder"
           >
         </label>
         <p id="rename-session-status" class="form-status" aria-live="polite"></p>
         <div class="app-alert-actions">
-          <button id="rename-session-cancel-button" class="quiet" type="button">取消</button>
-          <button class="primary" type="submit">保存</button>
+          <button id="rename-session-cancel-button" class="quiet" type="button" data-i18n="common.cancel">取消</button>
+          <button class="primary" type="submit" data-i18n="common.save">保存</button>
         </div>
       </form>
     </dialog>

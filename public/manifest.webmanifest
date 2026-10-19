@@ -1,7 +1,7 @@
 {
   "name": "Grok Remote",
   "short_name": "Grok",
-  "description": "通过私人网络使用主机上的 Grok",
+  "description": "Use Grok on a host over a private network.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
