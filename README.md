@@ -1,108 +1,108 @@
 # Grok Remote
 
-单用户、自托管 PWA。在手机或电脑上控制 Linux 或 macOS 主机上的 Grok Build CLI。
+English | [中文](README.zh-CN.md)
 
-消息在浏览器里编完再发。后端接受后可以关掉页面，本轮由按需 Worker（`grok agent stdio`）继续跑。
+Grok Remote is a single-user, self-hosted PWA for controlling the Grok Build CLI on a Linux or macOS host from a phone or computer.
 
-> 不是官方产品，也不是多人账户。部署者是唯一受信任的使用者。
+Messages are composed in the browser and sent in full. Once the backend accepts a message, the page may be closed while an on-demand worker (`grok agent stdio`) completes the turn.
 
-本应用与 Codex Remote 独立部署并使用不同入口，UI 布局、视觉和通用交互保持同步；Grok 能力差异单独适配。通用部署边界见 [`docs/deployment.md`](docs/deployment.md)。
+> This is not an official product or a multi-user account system. It assumes the person deploying it is the only trusted user.
 
-## 数据路径
+Grok Remote is deployed separately from Codex Remote and uses a different entry point. The projects keep their UI layout, visual design, and common interactions aligned while adapting product-specific capabilities independently. See [`docs/deployment.md`](docs/deployment.md) for the shared deployment boundaries.
+
+## Features
+
+- Browse projects from configured roots and manage sessions created by Grok Remote.
+- Stream replies, tool activity, approvals, and slash-command results.
+- Send ordinary files through the separate shared upload service.
+- Use the interface in Chinese or English. It follows the browser language by default, and the choice is stored only in that browser.
+- Install the application as a PWA.
+
+## Data path
 
 ```text
-浏览器 PWA
-  → HTTPS 入口（Tailscale Serve 或其它反向代理）
-  → 127.0.0.1:<GROK_REMOTE_PORT> 上的 Grok Remote Node 后端
-  → Unix socket 上的共享 ai-remote-upload（仅附件）
-  → 仅在需要执行时：grok agent stdio（ACP JSON-RPC）
-  → Grok 原生会话 ~/.grok/sessions/<按工作目录分组>/<session-id>/
+Browser PWA
+  -> HTTPS entry point (Tailscale Serve or another reverse proxy)
+  -> Grok Remote Node backend on 127.0.0.1:<GROK_REMOTE_PORT>
+  -> shared ai-remote-upload on a Unix socket (attachments only)
+  -> only while work is running: grok agent stdio (ACP JSON-RPC)
+  -> native Grok sessions in ~/.grok/sessions/<grouped-by-working-directory>/<session-id>/
 ```
 
-服务只绑 `127.0.0.1`。浏览器只看见为本 PWA 准备的小协议，不会直接碰到 ACP、文件系统或终端。
+The service listens on `127.0.0.1` only. The browser sees a small protocol designed for this PWA and never connects directly to ACP, the filesystem, or a terminal.
 
-## 要求
+## Requirements
 
-- Linux 或 macOS 主机
-- Node.js 24 或更新版本
-- 已安装并登录 `grok`
-- 一份项目白名单 `projects.json`（可与其它 Remote 共用，用 `GROK_REMOTE_PROJECTS_CONFIG` 指向）
-- 使用附件时，需要与 Grok Remote 同一 Unix 账号运行的独立 [`ai-remote-upload`](https://github.com/lizzyhague/ai-remote-upload) 服务
+- A Linux or macOS host
+- Node.js 24 or later
+- `grok` installed and signed in
+- A `projects.json` allowlist (it may be shared with another Remote through `GROK_REMOTE_PROJECTS_CONFIG`)
+- For attachments, the separate [`ai-remote-upload`](https://github.com/lizzyhague/ai-remote-upload) service running as the same Unix user
 
-部署说明见 [`docs/deployment.md`](docs/deployment.md)，含通用准备、Linux + systemd 和 macOS + launchd。
+See [`docs/deployment.md`](docs/deployment.md) for general preparation, Linux with systemd, and macOS with launchd.
 
-## 环境变量
+## Environment variables
 
-| 变量 | 作用 |
+| Variable | Purpose |
 | --- | --- |
-| `GROK_REMOTE_TOKEN` | HTTP / WebSocket 共用的登录凭据，至少 32 个字符 |
-| `GROK_REMOTE_PORT` | Node 回环端口；未设置时程序默认 3000，正式部署建议显式设置 |
-| `GROK_REMOTE_ALLOWED_ORIGINS` | 额外允许的 Origin，逗号分隔 |
-| `GROK_REMOTE_PROJECTS_CONFIG` | 项目白名单文件路径 |
-| `GROK_BIN` | `grok` 可执行文件；默认从 `PATH` 查找 |
-| `GROK_HOME` | 可选。Grok 的数据和会话目录；默认 `~/.grok` |
-| `GROK_REMOTE_STATE_DIR` | 可选。本应用事件日志、权限模式、归档和回收站标记；默认 `~/.grok-remote` |
-| `GROK_REMOTE_MAX_WORKERS` | 可选。同时活动的 Worker 上限，默认 4；到限拒绝新 Worker |
-| `GROK_REMOTE_MIN_FREE_MEMORY_MB` | 可选。启动 Worker 前最低可信可用内存，默认 512；Linux 读取 `MemAvailable`，macOS 读取 `vm_stat` |
-| `AI_REMOTE_UPLOAD_SOCKET` | 可选。共享上传服务 Unix socket；默认 `~/.local/share/ai-remote/upload.sock` |
+| `GROK_REMOTE_TOKEN` | Shared HTTP / WebSocket sign-in credential; at least 32 characters |
+| `GROK_REMOTE_PORT` | Node loopback port; defaults to 3000, but should be explicit in a real deployment |
+| `GROK_REMOTE_ALLOWED_ORIGINS` | Extra allowed origins, comma separated |
+| `GROK_REMOTE_PROJECTS_CONFIG` | Project allowlist path |
+| `GROK_BIN` | `grok` executable; found on `PATH` by default |
+| `GROK_HOME` | Optional Grok data and session directory; defaults to `~/.grok` |
+| `GROK_REMOTE_STATE_DIR` | Optional event log, permission mode, archive, and trash state; defaults to `~/.grok-remote` |
+| `GROK_REMOTE_MAX_WORKERS` | Optional active-worker limit; defaults to 4; new workers are refused at the limit |
+| `GROK_REMOTE_MIN_FREE_MEMORY_MB` | Optional minimum reliable available memory before starting a worker; defaults to 512; Linux uses `MemAvailable`, macOS uses `vm_stat` |
+| `AI_REMOTE_UPLOAD_SOCKET` | Optional shared upload Unix socket; defaults to `~/.local/share/ai-remote/upload.sock` |
 
-真实令牌和本机项目路径不要进 git。
+Never commit real tokens or host-specific project paths.
 
-## 本机试运行
+## Local trial run
 
 ```bash
 npm ci --include=dev
 cp config/projects.example.json config/projects.json
-# 编辑 config/projects.json，把示例项目根目录换成实际位置
+# Replace the example project root with a real path.
 GROK_REMOTE_TOKEN="$(openssl rand -hex 32)" \
   GROK_REMOTE_PORT=3000 \
   GROK_REMOTE_PROJECTS_CONFIG="$PWD/config/projects.json" \
   npm start
 ```
 
-本地健康检查：`http://127.0.0.1:3000/healthz`。生产环境的 HTTPS 入口端口与
-Node 回环端口是两项独立配置，不要求使用相同数字。
+The local health check is `http://127.0.0.1:3000/healthz`. The production HTTPS entry port and the Node loopback port are separate settings and need not match.
 
-## 登录与文件查看
+## Sign-in and file viewing
 
-通过 HTTPS 入口登录。前端将令牌提交到 `POST /auth/login`，后端签发
-`grok-remote-session` cookie（`HttpOnly`、`Secure`、`SameSite=Strict`、`Path=/`）。
-HTTP 文件请求、附件上传和 WebSocket 握手统一检查该 cookie；WebSocket 不再接受首帧 `auth`。
-升级后各浏览器需要重新登录一次，旧版 localStorage 中的令牌会被删除。
+Sign in through the HTTPS entry point. The frontend submits the token to `POST /auth/login`, and the backend issues a `grok-remote-session` cookie with `HttpOnly`, `Secure`, `SameSite=Strict`, and `Path=/`. HTTP file requests, attachment uploads, and WebSocket upgrades all validate this cookie; WebSocket no longer accepts a first-frame `auth` message. After this upgrade, each browser must sign in again; tokens previously stored in localStorage are removed.
 
-签名凭据没有服务端到期时间，也不依赖内存会话表。保持 `GROK_REMOTE_TOKEN` 不变，
-重启后登录状态仍有效；更换该值并重启会让已签发的 cookie 全部失效。
-浏览器 cookie 使用 400 天的持久保存期限，并在已登录的 HTTP 请求中续存；
-长期未访问、浏览器清理或删除 cookie 后需要重新登录。
+The signed credential has no server-side expiry and does not depend on an in-memory session table. It remains valid across restarts while `GROK_REMOTE_TOKEN` stays unchanged. Rotating that value and restarting invalidates every issued cookie. The browser stores the cookie for 400 days and renews it during authenticated HTTP requests. A long idle period, browser cleanup, or deleting the cookie requires signing in again.
 
-文件链接使用当前应用的 HTTPS origin：
+File links use the application's HTTPS origin:
 
 ```text
 https://grok.example.com/view?path=%2Fsrv%2Fprojects%2Fdemo%2FREADME.md
 ```
 
-`path` 必须是 URL 编码后的主机绝对路径，相对路径返回 404。
-只允许访问配置允许查看的根目录内的 `.md`、`.svg`、`.png`、`.jpg`、`.jpeg`、`.gif`、
-`.webp`、`.avif`、`.bmp`、`.ico` 文件（后缀不区分大小写）。路径越界、软链接逃逸、
-目录和其它后缀均返回 404，没有下载兜底或目录浏览。
+`path` must be a URL-encoded absolute host path; relative paths return 404. Viewing is limited to `.md`, `.svg`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.avif`, `.bmp`, and `.ico` files inside configured viewable roots (extensions are case-insensitive). Escaping through paths or symlinks, directories, and other extensions return 404; there is no download or directory-browsing fallback.
 
-`/view` 在浏览器中复用 Markdown 渲染器，图片使用 `<img>`；未登录时提供登录入口并保留
-目标链接。`/raw?path=...` 返回文件内容，带 `nosniff`、CSP sandbox 和 `no-store`。
-Service Worker 仅缓存公开的应用静态文件，不缓存鉴权响应或文件内容。
+`/view` reuses the Markdown renderer and displays images with `<img>`. Unauthenticated visits get a sign-in link that keeps the target. `/raw?path=...` returns content with `nosniff`, a sandbox CSP, and `no-store`. The Service Worker caches only public application assets, never authenticated responses or file contents.
 
-## 会话整理
+Appearance and interface language are stored only in the browser and are not sent to the server.
 
-侧栏只列出由 Grok Remote 创建的会话。归档和回收站都是本应用自己的标记，不改 Grok CLI 的会话文件。侧栏有最近会话、已归档、回收站三个视图，交互与 Codex Remote 一致。回收站里的会话 30 天后自动永久删除。没发过第一条消息的空会话刷新后不会留在列表里。
+## Session organization
 
-## 附件
+The sidebar lists only sessions created by Grok Remote. Archive and trash are application-owned marks and do not modify Grok CLI session files. The sidebar has recent, archived, and trash views, with the same interaction as Codex Remote. Trash is permanently deleted after 30 days. Empty sessions that never sent a first message disappear after refresh.
 
-附件复用独立项目 [`ai-remote-upload`](https://github.com/lizzyhague/ai-remote-upload)：浏览器先通过已认证 WebSocket 申请一次性票据，再把原始字节流式发送到同源 `/attachments/upload`。Grok Remote 不复制附件存储，只保存公开元数据和附件 ID，并在任务排队、运行和等待审批期间维护租约。安装见该项目的部署说明，不要从 Codex Remote 仓库取得服务代码。
+## Attachments
 
-一条消息最多引用 100 个附件，单文件最多 25 MiB。上传成功后，Remote 把附件真实路径交给 Grok CLI，由 agent 按请求用可用工具读取；页面只显示附件原名，不显示存储路径。Remote 不再按 MIME 解码全文或拒绝普通文件。某种格式最终能不能读，取决于当前 Grok 版本和可用工具。
+Attachments use the separate [`ai-remote-upload`](https://github.com/lizzyhague/ai-remote-upload) project. The browser requests a one-time ticket through the authenticated WebSocket and streams bytes to same-origin `/attachments/upload`. Grok Remote does not copy attachment storage; it stores only public metadata and attachment IDs, maintains leases while work is queued, running, or waiting for approval, and gives the real paths to Grok CLI when the message is sent. Follow that project's deployment docs; do not take the service code from the Codex Remote repository.
 
-## 明确不做
+A message may reference up to 100 attachments, each up to 25 MiB. The page shows original names and never storage paths. Grok Remote does not decode file contents by MIME type or reject ordinary files. Whether Grok can read a format depends on the installed Grok version and its available tools.
 
-- 每个会话常驻一个 Grok 进程
-- 全站共用一个长驻 `grok agent`
-- 浏览器直连 `grok agent serve`
-- 每条消息用 `grok -p` 起一次性进程
+## Explicit non-goals
+
+- One permanently running Grok process per session
+- One global long-lived `grok agent`
+- Direct browser access to `grok agent serve`
+- A new `grok -p` process for every message

@@ -1,58 +1,58 @@
-# 架构说明
+# Architecture
 
-Grok Remote 是单用户自托管的 PWA，用来在手机或电脑上控制主机上的 Grok CLI。
-后端只监听 `127.0.0.1`，HTTPS 入口是独立的一层。
+English | [中文](architecture.zh-CN.md)
+
+Grok Remote is a single-user, self-hosted PWA for controlling the Grok CLI from a phone or computer. The backend listens on `127.0.0.1` only; HTTPS is a separate entry layer.
 
 ```text
-浏览器 PWA → HTTPS 入口 → 127.0.0.1:<GROK_REMOTE_PORT>
-                              ├→ Unix socket 上的共享 ai-remote-upload（仅附件）
-                              └→ 按需 Worker：grok agent stdio（ACP JSON-RPC）
+Browser PWA -> HTTPS entry point -> 127.0.0.1:<GROK_REMOTE_PORT>
+                                      |-> shared ai-remote-upload on a Unix socket (attachments only)
+                                      `-> on-demand worker: grok agent stdio (ACP JSON-RPC)
 ```
 
-浏览器只看到为这个应用设计的小协议，拿不到绝对路径、ACP 内部 id 或终端能力。
+The browser sees only the restricted application protocol. It receives no absolute paths, ACP internal IDs, or terminal capability.
 
-## 模块
+## Modules
 
-| 目录 | 负责什么 |
+| Directory | Responsibility |
 | --- | --- |
-| `src/server` | HTTP 与 WebSocket 入口、令牌鉴权、Origin 校验、静态资源、项目锁、在线状态、文件查看 |
-| `src/sessions` | 会话登记、历史、归档与回收站标记、磁盘布局 |
-| `src/turns` | 一轮对话的执行、事件流、工具展示 |
-| `src/worker` | 启停 `grok agent` 子进程、ACP 客户端、JSON-RPC |
-| `src/commands` | 斜杠命令目录与执行 |
-| `src/projects` | 项目白名单解析 |
-| `src/attachments` | 把上传的附件编成路径说明交给 CLI，并把页面上的已知附件路径换成原名 |
-| `src/shared-upload` | 独立项目 `ai-remote-upload` 的薄客户端 |
-| `src/platform` | 平台差异（可用内存读取等） |
-| `public/` | 前端 PWA：登录、会话列表、编辑发送、流式显示、Markdown、斜杠菜单 |
+| `src/server` | HTTP and WebSocket entry points, authentication, origin checks, static assets, project locks, presence, and file viewing |
+| `src/sessions` | Session registry and history, archive and trash marks, disk layout |
+| `src/turns` | Turn execution, event stream, and tool presentation |
+| `src/worker` | `grok agent` process lifecycle, ACP client, and JSON-RPC |
+| `src/commands` | Slash-command catalog and execution |
+| `src/projects` | Project allowlist parsing |
+| `src/attachments` | Attachment path instructions for the CLI and replacement of known paths with original names |
+| `src/shared-upload` | Thin client for the separate `ai-remote-upload` project |
+| `src/shared` | Stable interface-text keys and parameters sent by the backend |
+| `src/platform` | Platform differences such as available-memory readings |
+| `public/` | PWA frontend: sign-in, sessions, composer, streaming, Markdown, commands, and localization |
 
-## 会话与 Worker
+## Interface language
 
-只有在需要执行时才起进程。用户发消息且后端已接受，该会话没有 Worker 就启动一个；
-本轮结束且队列为空，Worker 退出。只翻列表或看历史不启动进程。同一会话同时最多一个
-Worker。
+Interface text lives in `public/strings.js`. Backend notices, errors, and command results carry stable keys and parameters; the browser renders them in its current language, while server logs remain English. Existing conversation content is not redrawn when the language changes.
 
-消息被接受后即可关闭页面，本轮由后端继续跑完并保存。重新打开可以接上正在流式的
-输出，或直接读完成的回复。
+The platform instructions sent to Grok are always English. Attachment display lines use the fixed form `[Attachment: original-name · ID]` so optimistic and persisted messages match.
 
-会话正文以 Grok 自己的磁盘会话为准；本应用额外保存进行中的一轮、事件日志、权限
-模式、原生 session id、归档/回收站标记，以及会话附件显示索引（id / 原名 / 真实路径，
-只给页面转换用）。
+## Sessions and workers
 
-## 权限
+A process starts only when work needs to run. If an accepted message has no worker, the backend starts one; the worker exits when the turn and queue finish. Browsing sessions or history starts no process. A session has at most one worker at a time.
 
-审批按「是否还有前端在线」判断，任意在线客户端都能处理。最后一个前端断开后有 10 秒
-宽限期；宽限期结束仍无人，待处理审批被拒绝，整轮取消并标为中断。
+After the backend accepts a message, the page may close while the turn completes and is saved. Reopening resumes the live stream or loads the completed reply.
 
-`always-approve` 模式下无人在线也能继续处理可授权的工具，但需要人回答的问题（如
-`ask_user_question`）仍会中止本轮。
+Grok's native session is the source of truth for conversation content. The application additionally stores active-turn state, events, permission mode, native session ID, archive and trash marks, and an attachment display index containing IDs, original names, and real paths.
 
-## 安全边界
+## Permissions
 
-- 只监听回环，入口挂掉也不会绑到公网网卡。
-- WebSocket 校验 Origin，令牌定时安全比较。
-- 项目必须落在白名单根目录的第一层文件夹内，恢复会话时核对 cwd。
-- 不向 Grok 声明可读写任意文件的 `fs` / `terminal` 能力。
-- 带绝对路径的错误只写服务日志，浏览器只收到不含路径的说明。
-- 上传附件的真实路径只出现在 CLI 输入和私有附件索引里。发给浏览器的事件、工具卡、
-  权限卡、回答和历史会去掉内部路径块，并把已知附件路径换成原名。
+Any online client may handle an approval. After the last frontend disconnects there is a 10-second grace period; when it expires, a pending approval is rejected and the turn is cancelled and marked interrupted.
+
+With `always-approve`, approvable tools may continue while nobody is online. Questions that require a human answer, such as `ask_user_question`, still interrupt the turn.
+
+## Security boundaries
+
+- The backend listens on loopback only.
+- WebSocket upgrades validate Origin, and token comparison is timing safe.
+- Projects must be direct children of configured roots; resumed sessions revalidate their working directory.
+- Grok is not advertised arbitrary `fs` or `terminal` capabilities.
+- Errors containing absolute paths stay in service logs; the browser receives a path-free message.
+- Real attachment paths appear only in CLI input and the private attachment index. Browser events, tools, approvals, replies, and history remove private path blocks and replace known paths with original names.

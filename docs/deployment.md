@@ -1,17 +1,16 @@
-# 部署说明
+# Deployment
 
-后端只监听 `127.0.0.1`，HTTPS 入口是独立的一层，两个端口不要求相同。先把本地后端跑
-通，再配入口。
+English | [中文](deployment.zh-CN.md)
 
-真实令牌和主机路径不提交。`config/projects.json`、`deploy/grok-remote.env`、
-`deploy/*.local` 都已被 `.gitignore` 排除。
+The backend listens on `127.0.0.1` only. HTTPS is a separate entry layer, and the two ports need not match. Get the local backend working before configuring the entry point.
 
-## 1. 准备
+Do not commit real tokens or host paths. `config/projects.json`, `deploy/grok-remote.env`, and `deploy/*.local` are ignored by Git.
 
-服务由**已经安装并登录 Grok 的 Unix 用户**运行：Grok 从该用户的 `~/.grok` 读登录状态，
-应用把自己的状态写进 `~/.grok-remote`，附件也要访问同一用户下的 socket。
+## 1. Prepare the runtime account
 
-在该用户的登录环境中核验（要求 Node.js 24 以上，且 `grok` 能真的用起来）：
+Run the service as the Unix user that already has Grok installed and signed in. Grok reads that user's `~/.grok`, the application writes `~/.grok-remote`, and attachments use a socket owned by the same user.
+
+Verify the login environment (Node.js 24 or later is required):
 
 ```bash
 id -un; id -gn; printf '%s\n' "$HOME"
@@ -20,7 +19,7 @@ command -v node; command -v grok
 grok --version
 ```
 
-## 2. 装代码和配置
+## 2. Install code and configuration
 
 ```bash
 git clone https://github.com/lizzyhague/grok-remote.git
@@ -34,60 +33,53 @@ chmod 600 config/projects.json deploy/grok-remote.env
 openssl rand -hex 32
 ```
 
-编辑 `config/projects.json`，把示例根目录换成本机实际目录：
+Replace the example root in `config/projects.json`:
 
 ```json
 { "roots": [ { "id": "projects", "path": "/absolute/path/to/projects" } ] }
 ```
 
-网页里可选的项目，是每个根目录下的第一层文件夹。
+Direct child directories become selectable projects. Set at least these values in `deploy/grok-remote.env`:
 
-编辑 `deploy/grok-remote.env`，至少填四项：
-
-| 变量 | 填什么 |
+| Variable | Value |
 | --- | --- |
-| `GROK_REMOTE_TOKEN` | 上面 `openssl` 生成的随机值，至少 32 字符 |
-| `GROK_REMOTE_PORT` | 未占用的回环端口（不设置时默认 3000） |
-| `GROK_REMOTE_PROJECTS_CONFIG` | `config/projects.json` 的绝对路径 |
-| `GROK_BIN` | `command -v grok` 返回的绝对路径 |
+| `GROK_REMOTE_TOKEN` | Random value generated above, at least 32 characters |
+| `GROK_REMOTE_PORT` | Unused loopback port; defaults to 3000 |
+| `GROK_REMOTE_PROJECTS_CONFIG` | Absolute path to `config/projects.json` |
+| `GROK_BIN` | Absolute path returned by `command -v grok` |
 
-`GROK_REMOTE_ALLOWED_ORIGINS` 通常留空；只有反向代理不保留 `Host` /
-`X-Forwarded-Host` 时才填完整 Origin。
+Usually leave `GROK_REMOTE_ALLOWED_ORIGINS` empty. Set complete origins only when the reverse proxy does not preserve `Host` or `X-Forwarded-Host`.
 
-## 3a. Linux + systemd
+## 3a. Linux with systemd
 
 ```bash
 cp deploy/grok-remote.service.example deploy/grok-remote.service.local
 ```
 
-替换本地副本里的占位符：`__RUN_USER__`、`__RUN_GROUP__`、`__RUN_HOME__`、`__APP_DIR__`
-（仓库根目录）、`__ENV_FILE__`、`__NODE_BIN__`、`__RUNTIME_PATH__`（含 Node 和 Grok 的
-完整 PATH）。确认没有漏替换：
+Replace `__RUN_USER__`, `__RUN_GROUP__`, `__RUN_HOME__`, `__APP_DIR__`, `__ENV_FILE__`, `__NODE_BIN__`, and `__RUNTIME_PATH__`, then verify and install:
 
 ```bash
-grep -n '__[A-Z_]*__' deploy/grok-remote.service.local   # 应无输出
+grep -n '__[A-Z_]*__' deploy/grok-remote.service.local   # no output expected
 sudo install -m 0644 deploy/grok-remote.service.local /etc/systemd/system/grok-remote.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now grok-remote.service
 curl --fail --show-error http://127.0.0.1:3000/healthz
 ```
 
-## 3b. macOS + launchd
+## 3b. macOS with launchd
 
-用系统级 LaunchDaemon，服务不依赖图形登录；`UserName` 仍是上面那个已登录 Grok 的普通
-用户。
+Use a system LaunchDaemon so the service does not depend on a graphical login. `UserName` remains the ordinary Grok user.
 
 ```bash
 cp deploy/com.example.grok-remote.plist.example deploy/com.example.grok-remote.plist.local
 mkdir -p "$HOME/Library/Logs/grok-remote" && chmod 700 "$HOME/Library/Logs/grok-remote"
 ```
 
-占位符比 systemd 多两个：`__SERVICE_LABEL__`（唯一 launchd label）和 `__LOG_DIR__`。
-文件名、plist 里的 `Label` 和 `launchctl` 命令三者必须一致。
+Also replace `__SERVICE_LABEL__` and `__LOG_DIR__`. The filename, plist `Label`, and `launchctl` command must agree.
 
 ```bash
 plutil -lint deploy/com.example.grok-remote.plist.local
-grep -n '__[A-Z_]*__' deploy/com.example.grok-remote.plist.local   # 应无输出
+grep -n '__[A-Z_]*__' deploy/com.example.grok-remote.plist.local   # no output expected
 sudo install -o root -g wheel -m 0644 \
   deploy/com.example.grok-remote.plist.local \
   /Library/LaunchDaemons/com.example.grok-remote.plist
@@ -96,50 +88,29 @@ sudo launchctl kickstart -k system/com.example.grok-remote
 curl --fail --show-error http://127.0.0.1:3000/healthz
 ```
 
-需要代理时，把 `HTTPS_PROXY` 等写进 `deploy/grok-remote.env`，并用 `NO_PROXY` 保持
-`127.0.0.1`、`localhost` 和私网入口直连。
+Put proxy variables such as `HTTPS_PROXY` in `deploy/grok-remote.env`; use `NO_PROXY` for `127.0.0.1`, `localhost`, and private entry points. Do not configure HTTPS until the health check passes.
 
-健康检查不过就不要往下配入口。
+## 4. HTTPS entry point
 
-## 4. HTTPS 入口
-
-Tailscale Serve（只暴露给 tailnet，端口按本机实际情况选）：
+Example Tailscale Serve entry, visible only to the tailnet:
 
 ```bash
 tailscale serve --bg --https=8443 http://127.0.0.1:3000
 tailscale serve status
 ```
 
-然后从另一台 tailnet 设备打开该地址登录，发一条测试消息。用别的反向代理也一样：
-Node 只监听回环，代理要正确转发 WebSocket 和上传请求。
+Open it from another tailnet device, sign in, and send a test message. Other reverse proxies work as well if they forward WebSocket and upload requests correctly.
 
-## 5. 附件（可选）
+## 5. Attachments (optional)
 
-附件走独立项目 [`ai-remote-upload`](https://github.com/lizzyhague/ai-remote-upload)，
-必须与本服务同一个 Unix 用户，socket 权限 0600。安装、启动和多实例部署都按那个仓库
-的说明，不要从 Codex Remote 或本仓库取得服务代码。
+Install [`ai-remote-upload`](https://github.com/lizzyhague/ai-remote-upload) from its own repository and run it as the same Unix user with socket mode 0600. Do not copy service code from Codex Remote or this repository.
 
-`AI_REMOTE_UPLOAD_SOCKET` 要与共享服务一致，默认
-`~/.local/share/ai-remote/upload.sock`。共享服务不存在时纯文本功能照常，只有附件会
-明确失败。更新或停止 Grok Remote 时，不要捎带更新、停止或重启上传服务。
+`AI_REMOTE_UPLOAD_SOCKET` must match the shared service and defaults to `~/.local/share/ai-remote/upload.sock`. Plain text keeps working when that service is absent; attachments fail explicitly. Updating or stopping Grok Remote must not update, stop, or restart the upload service.
 
-## 6. 前端更新
+## 6. Frontend releases
 
-没有单独的前端构建命令。服务在开始监听前读入整套前端，生成带版本地址的脚本和样式，
-保存在 `public/.web-assets/`。运行账户必须能写这个目录；它已被 Git 忽略。之后修改
-工作树不会影响正在运行的进程，前后端在重启时一起切换。前端文件不齐全（页面或模块
-引用的脚本缺失）时服务拒绝启动，不对外提供半套页面。
+There is no frontend build command. Before listening, the service reads the complete frontend and writes content-addressed assets under ignored `public/.web-assets/`. The runtime user needs write access. Working-tree changes do not affect a running process; frontend and backend switch together on restart. Startup fails if a referenced frontend file is missing.
 
-`.web-assets/` 保留当前版本和最近两次启动用过的旧版本，更早的在启动时自动删除，
-已经打开的旧页面在这段时间内仍能获取旧版资源。部署新代码时不要手工清空该目录，也不要
-将它提交到仓库。
+The directory retains the current assets and those from the previous two starts. Do not clear or commit it. New scripts or styles must be added to the static-file allowlist in `src/server/http-server.ts`; existing files need no manual version change. See [Operations](operations.md#updates) for update and rollback steps.
 
-前端文件仍使用 HTTP 静态资源白名单。新增脚本或样式要登记到
-`src/server/http-server.ts` 的白名单；修改已有前端文件无需手工改版本号。更新步骤和
-验证失败时的回退见 [运维说明](operations.md#更新)。
-
-联网时，普通刷新获取当前页面及其对应的脚本、样式，不依赖更新提示或 Service Worker
-接管。手机可以在聊天列表、会话列表顶部或标题栏空白处下拉，看到「松开刷新」后松手。
-页面不会因 Service Worker 更新主动重载。离线时使用最近一次完整缓存的页面，会话仍需联网。
-浏览器缓存只保留当前离线页和上一套离线页的脚本与样式；新版本没下载完整时，旧离线页和
-它的资源都不动。
+Online refreshes load the current page and matching assets. Pull to refresh works from the chat list, session list, or blank title-bar space. Service Worker updates do not force a reload. Offline mode uses the latest complete cached shell, but sessions still require a network connection.
