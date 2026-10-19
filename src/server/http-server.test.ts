@@ -60,6 +60,8 @@ test("serves health and authenticated WebSocket only on loopback", async () => {
 
     for (const asset of [
       "/boot.js",
+      "/strings.js",
+      "/i18n.js",
       "/confirm-dialog.js",
       "/markdown.js",
       "/notice.js",
@@ -352,6 +354,8 @@ const WEB_FILES = {
   "view.html": '<head><script type="module" src="/viewer.js"></script><link href="/viewer.css" rel="stylesheet"></head>',
   "app.js": 'import "./markdown.js"; window.__PWA_MARK__ = "A";',
   "theme.js": "// theme",
+  "strings.js": "// strings",
+  "i18n.js": "// i18n",
   "confirm-dialog.js": "// confirm dialog",
   "markdown.js": "// dependency-A",
   "styles.css": "body { color: red }",

@@ -10,6 +10,14 @@ function harness(fetch, search = "") {
   const sockets = [];
   const actions = [];
   const context = vm.createContext({
+    t: (key) => ({
+      "login.connecting": "正在连接……",
+      "login.noResponse": "没有收到服务器响应。请求可能未到达服务器，或者连接在服务器响应前中断。请检查网络或代理设置后重试。",
+      "login.required": "请登录。",
+      "login.tokenInvalid": "访问令牌有误，请重新输入。",
+      "login.unavailable": "登录服务暂时不可用。",
+      "login.hostUnreachable": "无法连接到主机。",
+    })[key] ?? key,
     fetch, URL, URLSearchParams,
     location: { protocol: "https:", host: "example.com", origin: "https://example.com", search,
       replace: (href) => actions.push(["redirect", href]) },

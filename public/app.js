@@ -3,6 +3,9 @@ import { createConfirmDialog } from "./confirm-dialog.js";
 import { createNoticeController } from "./notice.js";
 import { createSelectionBar, trashRemainingText } from "./selection-bar.js";
 
+/** Interface text from i18n.js, which loads in <head> before this module. */
+const t = window.grokRemoteI18n ? window.grokRemoteI18n.t : (key) => key;
+
 const TOKEN_KEY = "grok-remote-token";
 const PROJECT_KEY = "grok-remote.project";
 const SIDEBAR_COLLAPSED_KEY = "grok-remote.sidebar-collapsed";
@@ -102,6 +105,8 @@ const elements = {
   appearanceSettingsButton: byId("appearance-settings-button"),
   appearanceSettingsDialog: byId("appearance-settings-dialog"),
   themeOptions: byId("theme-options"),
+  languageSetting: byId("language-setting"),
+  languageOptions: byId("language-options"),
   collapseSidebarButton: byId("collapse-sidebar-button"),
   openSidebarButton: byId("open-sidebar-button"),
   sidebarBackdrop: byId("sidebar-backdrop"),
@@ -208,7 +213,7 @@ elements.tokenForm.addEventListener("submit", (event) => {
   if (!window.grokRemoteReady) return;
   const token = elements.tokenInput.value.trim();
   if (!token) {
-    setLoginStatus("请输入访问令牌。", "error");
+    setLoginStatus(t("login.tokenMissing"), "error");
     return;
   }
   void connect(token);
@@ -238,6 +243,7 @@ elements.selectSessionsButton.addEventListener("click", () => {
 });
 elements.appearanceSettingsButton.addEventListener("click", () => {
   renderThemeChoice();
+  renderLanguageChoice();
   elements.appearanceSettingsDialog.showModal();
 });
 elements.themeOptions.addEventListener("click", (event) => {
@@ -246,6 +252,11 @@ elements.themeOptions.addEventListener("click", (event) => {
   window.grokRemoteTheme.set(button.dataset.themeChoice);
   renderThemeChoice();
 });
+elements.languageOptions.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-language-choice]");
+  if (button && window.grokRemoteI18n) window.grokRemoteI18n.set(button.dataset.languageChoice);
+});
+window.addEventListener("grok-remote-languagechange", renderLanguageChoice);
 elements.collapseSidebarButton.addEventListener("click", closeSidebar);
 elements.openSidebarButton.addEventListener("click", openSidebar);
 elements.sidebarBackdrop.addEventListener("click", closeSidebar);
@@ -330,19 +341,17 @@ async function connect(token) {
         })
         : await fetch("/auth/session", { cache: "no-store" });
     } catch {
-      throw new Error(
-        "没有收到服务器响应。请求可能未到达服务器，或者连接在服务器响应前中断。请检查网络或代理设置后重试。",
-      );
+      throw new Error(t("login.noResponse"));
     }
     if (attempt !== state.connectAttempt) return;
     elements.tokenInput.value = "";
     if (response.status === 401) {
       state.reconnectEnabled = false;
       showLogin();
-      setLoginStatus(token ? "访问令牌有误，请重新输入。" : "请登录。", token ? "error" : null);
+      setLoginStatus(token ? t("login.tokenInvalid") : t("login.required"), token ? "error" : null);
       return;
     }
-    if (!response.ok) throw new Error("登录服务暂时不可用。");
+    if (!response.ok) throw new Error(t("login.unavailable"));
     const returnTo = new URLSearchParams(location.search).get("returnTo");
     if (returnTo?.startsWith("/view?")) {
       const target = new URL(returnTo, location.origin);
@@ -359,7 +368,7 @@ async function connect(token) {
     return;
   }
   setConnectionStatus("connecting", "正在连接");
-  setLoginStatus("正在连接……", "progress");
+  setLoginStatus(t("login.connecting"), "progress");
   closeSocket();
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${protocol}//${location.host}/ws`);
@@ -404,7 +413,7 @@ async function connect(token) {
   });
   socket.addEventListener("error", () => {
     if (state.socket !== socket) return;
-    setLoginStatus("无法连接到主机。", "error");
+    setLoginStatus(t("login.hostUnreachable"), "error");
   });
 }
 
@@ -2294,6 +2303,17 @@ function renderThemeChoice() {
   const current = theme.get();
   for (const button of elements.themeOptions.querySelectorAll("[data-theme-choice]")) {
     button.setAttribute("aria-pressed", String(button.dataset.themeChoice === current));
+  }
+}
+
+// Language is stored only in the current browser; i18n.js owns the preference and applies it to the page.
+function renderLanguageChoice() {
+  const i18n = window.grokRemoteI18n;
+  elements.languageSetting.hidden = !i18n;
+  if (!i18n) return;
+  const current = i18n.get();
+  for (const button of elements.languageOptions.querySelectorAll("[data-language-choice]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.languageChoice === current));
   }
 }
 

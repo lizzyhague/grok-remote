@@ -23,6 +23,7 @@ function harness() {
   let nextId = 0;
   const context = vm.createContext({
     URL, URLSearchParams, AbortController,
+    t: (key) => key,
     window: { clearTimeout() {} },
     location: { protocol: "https:", host: "example.test", search: "" },
     MAX_MESSAGE_ATTACHMENTS: 100, ATTACHMENT_DRAFTS_KEY: "drafts",

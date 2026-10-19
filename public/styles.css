@@ -389,6 +389,9 @@ button.small {
 .theme-options button:hover:not(:disabled, [aria-pressed="true"]) { border-color: transparent; color: var(--text); }
 .theme-options button[aria-pressed="true"] { border-color: var(--border); background: var(--surface-2); color: var(--text); }
 .theme-options svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.language-setting { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
+.language-setting h3 { margin: 0; font-size: 0.95rem; }
+.language-options button { font-size: 0.8rem; font-weight: 600; line-height: 1; }
 
 .sidebar-brand strong {
   min-width: 0;
