@@ -255,7 +255,7 @@ test("does not rename when session meta cannot be created", async () => {
     (item as { requestId?: string }).requestId === "rename-2"
   ) as { ok: boolean; error?: { message: string } };
   assert.equal(response.ok, false);
-  assert.match(response.error?.message ?? "", /could not be found/u);
+  assert.deepEqual(response.error?.message, { key: "backend.sessionMissing" });
   await connection.disconnect();
   services.presence.dispose();
 });

@@ -1,5 +1,6 @@
 import { canonicalCommandName, type CommandName } from "../commands/catalog.ts";
 import type { SessionView } from "../sessions/types.ts";
+import type { DisplayText } from "../shared/local-text.ts";
 
 export type BrowserSessionView = SessionView;
 export type BrowserSessionMutationAction =
@@ -105,13 +106,13 @@ export type BrowserResponse =
     type: "response";
     requestId: string;
     ok: false;
-    error: { code: string; message: string };
+    error: { code: string; message: DisplayText };
   };
 
 export type BrowserProtocolError = {
   type: "error";
   requestId: string | null;
-  error: { code: string; message: string };
+  error: { code: string; message: DisplayText };
 };
 
 export type BrowserEvent = {

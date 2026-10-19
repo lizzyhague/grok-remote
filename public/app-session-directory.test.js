@@ -4,7 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 import { createSelectionBar } from "./selection-bar.js";
-import { t } from "./i18n.test-support.js";
+import { grokRemoteI18n, t } from "./i18n.test-support.js";
 
 const source = await readFile(new URL("./app.js", import.meta.url), "utf8");
 
@@ -91,6 +91,7 @@ function harness({ view = "active", selectionMode = false } = {}) {
     TEMPORARY_WARNING: { tone: "warning" },
     TEMPORARY_INFO: { tone: "info" },
     t,
+    localize: grokRemoteI18n.localize,
     state: {
       projectId: "project-one",
       projects: [

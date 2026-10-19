@@ -5,6 +5,8 @@ import { createSelectionBar, trashRemainingText } from "./selection-bar.js";
 
 /** Interface text from i18n.js, which loads in <head> before this module. */
 const t = window.grokRemoteI18n ? window.grokRemoteI18n.t : (key) => key;
+const localize = window.grokRemoteI18n ? window.grokRemoteI18n.localize : (value, fallback = "") =>
+  typeof value === "string" ? value : fallback;
 
 const TOKEN_KEY = "grok-remote-token";
 const PROJECT_KEY = "grok-remote.project";
@@ -417,7 +419,7 @@ function handleSocketMessage(source) {
   if (!pending) return;
   state.pending.delete(message.requestId);
   if (message.ok === false || message.type === "error") {
-    const error = new Error(message.error?.message || t("request.failed"));
+    const error = new Error(localize(message.error?.message, t("request.failed")));
     error.code = message.error?.code;
     pending.reject(error);
     return;
@@ -1067,7 +1069,7 @@ async function executeSessionSelectionAction(action, sessionIds) {
     succeeded,
     failed: failed.map((failure) => ({
       id: failure?.sessionId,
-      reason: failure?.message || t("selection.failed"),
+      reason: localize(failure?.message, t("selection.failed")),
     })),
   };
 }
@@ -1365,7 +1367,7 @@ async function startUpload(draft) {
     });
     const body = await response.json().catch(() => null);
     if (!response.ok) {
-      const error = new Error(body?.error?.message || t("attachment.failed"));
+      const error = new Error(localize(body?.error?.message, t("attachment.failed")));
       error.code = body?.error?.code;
       throw error;
     }
@@ -1618,7 +1620,7 @@ function handleServerEvent(event) {
         hideThinking();
         syncApprovalNotice();
         if (event.status !== "completed") {
-          addTaskNote(event.reason || t(event.status === "interrupted" ? "task.interrupted" : "task.failed"));
+          addTaskNote(localize(event.reason, t(event.status === "interrupted" ? "task.interrupted" : "task.failed")));
         }
         for (const stream of state.assistantStreams.values()) {
           if (!stream.markdownRendered && stream.target) completeAssistant(stream.itemId, stream.target);
@@ -2079,7 +2081,7 @@ function addApproval(approval) {
   if (approval.reason) {
     const detail = document.createElement("p");
     detail.className = "permission-card-detail";
-    detail.textContent = approval.reason;
+    detail.textContent = localize(approval.reason);
     body.append(detail);
   }
   const actions = document.createElement("div");
@@ -2125,7 +2127,8 @@ function handleCommandResult(result) {
     return;
   }
   if (result?.kind === "info") {
-    addTaskNote([result.title, ...(result.lines ?? [])].filter(Boolean).join("\n"));
+    addTaskNote([localize(result.title), ...(result.lines ?? []).map((line) => localize(line))]
+      .filter(Boolean).join("\n"));
     return;
   }
   if (result?.kind === "rewind") return;
@@ -2673,7 +2676,8 @@ function setLoginStatus(text, tone = null) {
 }
 
 function errorMessage(error) {
-  return error instanceof Error ? error.message : t("request.failed");
+  if (error instanceof Error) return error.message;
+  return localize(error, t("request.failed"));
 }
 
 function stateGet(key) {

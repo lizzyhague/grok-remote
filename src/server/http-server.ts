@@ -19,6 +19,7 @@ import { CookieAuth, secretsEqual } from "./auth.ts";
 import { openViewableFile } from "./files.ts";
 import type { SharedUploadClient } from "../shared-upload/client.ts";
 import { MAX_UPLOAD_BYTES, SharedUploadError } from "../shared-upload/types.ts";
+import { localizeKnownText } from "../shared/local-text.ts";
 import {
   BrowserConnection,
   type BrowserConnectionServices,
@@ -519,7 +520,7 @@ function sendUploadError(response: ServerResponse, error: unknown): void {
     : new SharedUploadError("upload_failed", "The attachment upload failed.", 500);
   if (!(error instanceof SharedUploadError)) console.error(error);
   const body = Buffer.from(`${JSON.stringify({
-    error: { code: known.code, message: known.message },
+    error: { code: known.code, message: localizeKnownText(known.message) },
   })}\n`);
   response.writeHead(known.status, {
     "content-type": "application/json; charset=utf-8",

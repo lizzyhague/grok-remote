@@ -5,6 +5,7 @@ import type { SharedUploadClient } from "../shared-upload/client.ts";
 import { SharedUploadError } from "../shared-upload/types.ts";
 import type { PresenceTracker } from "./presence.ts";
 import { publicErrorMessage } from "./public-error.ts";
+import { localizeKnownTexts } from "../shared/local-text.ts";
 import {
   parseBrowserRequest,
   ProtocolError,
@@ -437,7 +438,7 @@ export class BrowserConnection {
 
   #send(message: BrowserMessage): void {
     if (!this.#disconnected) {
-      this.#socket.send(JSON.stringify(message));
+      this.#socket.send(JSON.stringify(localizeKnownTexts(message)));
     }
   }
 }

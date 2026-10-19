@@ -1,5 +1,8 @@
 /** Interface text from i18n.js; looked up on each call so language switches affect the next render. */
 const t = (key, params) => globalThis.grokRemoteI18n ? globalThis.grokRemoteI18n.t(key, params) : key;
+const localize = (value, fallback = "") => globalThis.grokRemoteI18n
+  ? globalThis.grokRemoteI18n.localize(value, fallback)
+  : typeof value === "string" ? value : fallback;
 
 export class SlashCommandMenu {
   constructor(options) {
@@ -120,7 +123,7 @@ export class SlashCommandMenu {
     heading.textContent = t("slash.heading");
     fragment.append(heading);
     const buttons = commands.map((command) => {
-      const button = commandButton(`/${command.name}`, command.description);
+      const button = commandButton(`/${command.name}`, localize(command.description));
       button.addEventListener("click", () => void this._chooseCommand(command));
       fragment.append(button);
       return button;
@@ -158,7 +161,7 @@ export class SlashCommandMenu {
   _renderOptions(command, data) {
     const items = Array.isArray(data?.items) ? data.items : [];
     this._renderOptionLevel(
-      data?.title || `/${command.name}`,
+      localize(data?.title, `/${command.name}`),
       items,
       () => {
         this._setInput("/");
@@ -175,9 +178,7 @@ export class SlashCommandMenu {
   }
 
   _renderEffortOptions(command, model, parentData) {
-    const modelLabel = typeof model.label === "string"
-      ? model.label.replace(/^✓\s*/, "")
-      : model.id;
+    const modelLabel = localize(model.label, model.id).replace(/^✓\s*/, "");
     this._renderOptionLevel(
       t("slash.chooseEffort", { model: modelLabel }),
       model.items,
@@ -200,7 +201,7 @@ export class SlashCommandMenu {
     heading.append(back, title);
     fragment.append(heading);
     const buttons = items.map((item) => {
-      const button = commandButton(item.label || item.id, item.description || "");
+      const button = commandButton(localize(item.label, item.id), localize(item.description));
       button.addEventListener("click", () => onSelect(item));
       fragment.append(button);
       return button;
@@ -285,8 +286,8 @@ function commandButton(label, description) {
 }
 
 function confirmCommand(command) {
-  const message = typeof command.confirmation === "string" && command.confirmation
-    ? command.confirmation
+  const message = command.confirmation
+    ? localize(command.confirmation)
     : t("slash.confirm", { name: command.name });
   return window.confirm(message);
 }

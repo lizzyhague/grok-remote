@@ -47,6 +47,7 @@ function run({ stored = null, languages = ["zh-CN"], storage = true, nodes = [] 
     grokRemoteStrings: {
       greeting: { zh: "你好，{name}", en: "Hello, {name}" },
       items: { zh: "{count} 项", en: { one: "1 item", other: "{count} items" } },
+      nested: { zh: "值：{value}", en: "Value: {value}" },
       "only.zh": { zh: "只有中文" },
     },
     addEventListener: (type, listener) => { listeners[type] = listener; },
@@ -138,6 +139,14 @@ test("t picks the singular or plural form by count", () => {
   assert.equal(page.api.t("items", { count: 3 }), "3 items");
   page.api.set("zh");
   assert.equal(page.api.t("items", { count: 1 }), "1 项");
+});
+
+test("localize renders backend text with nested parameters", () => {
+  const page = run({ languages: ["en"] });
+  assert.equal(page.api.localize({ key: "nested", params: { value: { key: "greeting", params: { name: "Lizzy" } } } }),
+    "Value: Hello, Lizzy");
+  assert.equal(page.api.localize("Grok text"), "Grok text");
+  assert.equal(page.api.localize(null, "fallback"), "fallback");
 });
 
 test("marked text and attributes are filled in and refilled on switching", () => {
