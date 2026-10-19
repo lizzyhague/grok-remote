@@ -245,7 +245,7 @@ test("leases attachments, sends private content to ACP, and releases without per
   assert.equal(publicEvents.includes(privatePath), false);
   assert.equal(publicEvents.includes("private attachment body"), false);
   assert.match(publicEvents, /private-note\.txt/u);
-  assert.match(publicEvents, /附件：private-note\.txt/u);
+  assert.match(publicEvents, /Attachment: private-note\.txt/u);
   assert.deepEqual(
     (await attachmentIndex.mappingsFor("grok-session")).map((entry) => entry.path),
     [privatePath],

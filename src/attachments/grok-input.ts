@@ -33,7 +33,7 @@ export function attachmentDisplayText(
   const trimmed = text.trim();
   if (attachments.length === 0) return text;
   const lines = attachments.map((attachment) =>
-    `[附件：${attachment.originalName} · ${attachment.id}]`);
+    `[Attachment: ${attachment.originalName} · ${attachment.id}]`);
   return trimmed ? `${text}\n\n${lines.join("\n")}` : lines.join("\n");
 }
 

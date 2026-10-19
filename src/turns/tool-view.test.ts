@@ -103,15 +103,15 @@ test("replaces known attachment paths in tool titles, input and resource address
   }, [mapping]);
   assert.equal(view.title.includes(mapping.path), false);
   assert.equal(view.input?.includes(mapping.path), false);
-  assert.ok(view.title.includes("附件：报告.pdf"));
-  assert.ok(view.input?.includes("附件：报告.pdf"));
+  assert.ok(view.title.includes("Attachment: 报告.pdf"));
+  assert.ok(view.input?.includes("Attachment: 报告.pdf"));
 
   const fetchView = createPublicToolView({
     kind: "fetch",
     rawInput: { url: mapping.path },
   }, [mapping]);
   assert.deepEqual(fetchView.resources, [
-    { address: "附件：报告.pdf", label: null },
+    { address: "Attachment: 报告.pdf", label: null },
   ]);
 });
 

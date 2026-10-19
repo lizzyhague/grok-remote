@@ -193,7 +193,7 @@ test("strips private attachment path blocks after aggregating user chunks", () =
     mappings: [{ id: "id-1", originalName: "报告.pdf", path: attachmentPath }],
     attachmentRecords: records,
   });
-  assert.deepEqual(turns[0]?.items.map(textOf), ["请看这个", "已读取 附件：报告.pdf"]);
+  assert.deepEqual(turns[0]?.items.map(textOf), ["请看这个", "已读取 Attachment: 报告.pdf"]);
   assert.equal(JSON.stringify(turns).includes(attachmentPath), false);
   assert.equal(records[0]?.attachments[0]?.path, attachmentPath);
 });

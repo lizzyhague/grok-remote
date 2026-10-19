@@ -15,8 +15,8 @@ export function attachmentDisplayLabel(
   mapping: AttachmentDisplayMapping,
   duplicateName: boolean,
 ): string {
-  if (!duplicateName) return `附件：${mapping.originalName}`;
-  return `附件：${mapping.originalName} (${mapping.id.slice(0, 8)})`;
+  if (!duplicateName) return `Attachment: ${mapping.originalName}`;
+  return `Attachment: ${mapping.originalName} (${mapping.id.slice(0, 8)})`;
 }
 
 export function redactKnownAttachmentPaths(
@@ -185,5 +185,5 @@ function incompleteSuffixLabel(text: string, replacements: readonly Replacement[
   const matches = replacements.filter((replacement) => replacement.variant.startsWith(text));
   if (matches.length === 0) return null;
   const labels = new Set(matches.map((match) => match.label));
-  return labels.size === 1 ? matches[0]?.label ?? "附件" : "附件";
+  return labels.size === 1 ? matches[0]?.label ?? "Attachment" : "Attachment";
 }

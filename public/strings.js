@@ -184,7 +184,6 @@ window.grokRemoteStrings = {
   "approval.waiting": { zh: "正在等待审批。", en: "Waiting for approval." },
   "alwaysApprove.disabled": { zh: "已关闭 always-approve。", en: "Always-approve is off." },
   "alwaysApprove.enabled": { zh: "已打开 always-approve。", en: "Always-approve is on." },
-  "attachment.display": { zh: "[附件：{name} · {id}]", en: "[Attachment: {name} · {id}]" },
   "attachment.preparing": { zh: "正在申请上传", en: "Preparing upload" },
   "attachment.processing": { zh: "处理中", en: "Processing" },
   "attachment.retryOne": { zh: "重新上传附件 {name}", en: "Upload attachment {name} again" },

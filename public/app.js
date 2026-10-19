@@ -1491,7 +1491,7 @@ function mergeAttachments(first, second) {
 function displayTextWithAttachments(text, attachments) {
   if (attachments.length === 0) return text;
   const lines = attachments.map((attachment) =>
-    t("attachment.display", { name: attachment.originalName, id: attachment.id }));
+    `[Attachment: ${attachment.originalName} · ${attachment.id}]`);
   return text ? `${text}\n\n${lines.join("\n")}` : lines.join("\n");
 }
 

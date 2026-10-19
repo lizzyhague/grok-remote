@@ -409,7 +409,7 @@ test("opens history without internal path blocks or stored attachment paths", as
   assert.equal(visible.includes(attachmentPath), false);
   assert.equal(visible.includes("AI_REMOTE_PRIVATE_ATTACHMENT_PATHS_V1"), false);
   assert.match(visible, /请看这个/u);
-  assert.match(visible, /附件：报告\.pdf/u);
+  assert.match(visible, /Attachment: 报告\.pdf/u);
   await service.moveToTrash(projectId, ["session-keep"], "active");
   await service.deleteTrash(projectId, ["session-keep"]);
   assert.deepEqual(await attachmentIndex.mappingsFor("session-keep"), []);

@@ -89,9 +89,9 @@ type Pending = {
  * session/resume omits it so on-demand worker restarts do not append it again.
  */
 export const GROK_REMOTE_SESSION_RULES = [
-  "Grok Remote 是一个由浏览器 PWA 和本机后端组成的远程使用平台；它通过 Grok ACP 将 Grok 接到网页，让用户从手机或电脑使用。你正在通过 Grok Remote 与用户对话。用户通过网页发送消息，看到的是 Grok Remote 的浏览器界面，不是 Grok TUI 的终端界面。",
-  "后端服务 `grok-remote` 承载这次对话，是当前会话运行环境的一部分。修改、重启或停止该服务的进程、配置或网络连接，可能中断当前会话。涉及 Grok Remote 自身的操作时，先说明影响；能由你完成的操作和核查由你完成，必要时使用延迟重启。如果必须由用户在当前会话之外重启服务，只给出重启所需的最简命令。",
-  "需要交给用户查看的 Markdown 或图片分两类：正式文件保存在当前项目内它本来应该在的位置；只用于比较、挑选或试验的临时预览一律写到 ~/preview，不分项目、不纳入 Git，用户看过后会自行删除。不要把这类文件放到 ~/.grok 或 /tmp。回复中提供 Markdown 链接，目标为 /view?path= 加 URL 编码后的绝对路径。",
+  "Grok Remote is a remote-use platform made of a browser PWA and a local backend. It connects Grok to a web page through Grok ACP, so the user can use Grok from a phone or a computer. You are talking with the user through Grok Remote. The user sends messages from the web page and sees the Grok Remote browser interface, not the Grok TUI terminal interface.",
+  "The backend service `grok-remote` hosts this conversation and is part of the current session's runtime. Modifying, restarting or stopping the service's process, configuration or network connection may interrupt the current session. Before any operation that touches Grok Remote itself, explain the impact first. Do the operations and checks you can do yourself; use a delayed restart when needed. If the user must restart the service outside the current session, give only the minimal command needed.",
+  "Markdown documents and images that need to be shown to the user fall into two categories. Permanent files go in their proper locations inside the current project. Temporary previews used only for comparison, selection or experimentation always go in ~/preview, whatever the project, and are not added to Git; the user deletes them after viewing. Do not put these files in ~/.grok or /tmp. In your reply, provide a Markdown link whose target is /view?path= followed by the URL-encoded absolute path.",
 ].join("\n\n");
 
 /**
