@@ -381,16 +381,19 @@ button.small {
 
 .sidebar-heading-actions { display: flex; gap: 0.35rem; }
 
-.appearance-settings-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-.appearance-settings-head h2 { margin: 0; }
-.appearance-settings-dialog .theme-options { margin-left: auto; }
-.theme-options { display: flex; width: 120px; padding: 2px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-sunken); }
+.app-settings-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.8rem; }
+.app-settings-dialog .app-settings-head h2 { margin: 0; }
+.app-settings-body { display: grid; gap: 0.7rem; }
+.app-settings-section { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.85rem; border-radius: 10px; background: var(--surface-1); }
+.app-settings-text { display: grid; gap: 0.2rem; }
+.app-settings-title { margin: 0; color: var(--text); font-size: 0.95rem; font-weight: 700; }
+.app-alert-dialog .app-settings-help { margin: 0; padding-left: 0.6rem; border-left: 2px solid var(--border); color: var(--text-muted); font-size: 0.78rem; line-height: 1.55; }
+.theme-options { display: flex; flex: none; width: 120px; padding: 2px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-sunken); }
 .theme-options button { display: grid; flex: 1; place-items: center; min-height: 30px; padding: 0; border-color: transparent; border-radius: 999px; background: transparent; color: var(--text-muted); }
 .theme-options button:hover:not(:disabled, [aria-pressed="true"]) { border-color: transparent; color: var(--text); }
 .theme-options button[aria-pressed="true"] { border-color: var(--border); background: var(--surface-2); color: var(--text); }
 .theme-options svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.language-setting { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
-.language-setting h3 { margin: 0; font-size: 0.95rem; }
+.timezone-select { flex: none; width: 154px; min-height: 34px; padding: 0 2rem 0 0.65rem; background: var(--surface-sunken); color: var(--text); }
 .language-options button { font-size: 0.8rem; font-weight: 600; line-height: 1; }
 
 .sidebar-brand strong {

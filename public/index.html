@@ -36,8 +36,22 @@
             <strong>Grok Remote</strong>
           </span>
           <div class="sidebar-heading-actions">
-            <button id="appearance-settings-button" class="quiet small icon-button" type="button" aria-label="外观设置" title="外观设置" data-i18n-aria-label="settings.appearance" data-i18n-title="settings.appearance">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/></svg>
+            <button
+              id="app-settings-button"
+              class="quiet small icon-button app-settings-button"
+              type="button"
+              aria-label="应用设置"
+              title="应用设置"
+              data-i18n-aria-label="settings.app"
+              data-i18n-title="settings.app"
+              aria-haspopup="dialog"
+              aria-controls="app-settings-dialog"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
             </button>
             <button id="collapse-sidebar-button" class="quiet small icon-button" type="button" aria-label="收起会话列表" title="收起会话列表" data-i18n-aria-label="sidebar.collapse" data-i18n-title="sidebar.collapse">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
@@ -189,27 +203,52 @@
         </div>
       </form>
     </dialog>
-    <dialog id="appearance-settings-dialog" class="app-alert-dialog appearance-settings-dialog" aria-labelledby="appearance-settings-title">
+    <dialog id="app-settings-dialog" class="app-alert-dialog app-settings-dialog" aria-labelledby="app-settings-title">
       <form method="dialog">
-        <div class="appearance-settings-head">
-          <h2 id="appearance-settings-title" data-i18n="settings.theme">外观</h2>
+        <div class="app-settings-head">
+          <h2 id="app-settings-title" data-i18n="settings.app">应用设置</h2>
           <button class="quiet small" type="submit" aria-label="关闭" data-i18n-aria-label="common.close" data-i18n="common.close">关闭</button>
         </div>
-        <p data-i18n="settings.browserOnly">只影响当前浏览器。</p>
-        <div id="theme-options" class="theme-options" role="group" aria-label="主题" data-i18n-aria-label="settings.themeGroup">
-          <button type="button" data-theme-choice="system" aria-pressed="false" aria-label="跟随系统" title="跟随系统" data-i18n-aria-label="settings.themeSystem" data-i18n-title="settings.themeSystem"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
-          <button type="button" data-theme-choice="light" aria-pressed="false" aria-label="浅色" title="浅色" data-i18n-aria-label="settings.themeLight" data-i18n-title="settings.themeLight"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.6"/><path d="M12 2.2v1.3M12 20.5v1.3M2.2 12h1.3M20.5 12h1.3M5.1 5.1l.9.9M18 18l.9.9M5.1 18.9l.9-.9M18 6l.9-.9"/></svg></button>
-          <button type="button" data-theme-choice="dark" aria-pressed="false" aria-label="深色" title="深色" data-i18n-aria-label="settings.themeDark" data-i18n-title="settings.themeDark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.7a10 10 0 1 0 9.5 14 8 8 0 0 1-9.5-14z"/></svg></button>
-        </div>
-        <div id="language-setting" class="language-setting">
-          <h3 id="language-label" data-i18n="settings.language">语言</h3>
-          <div id="language-options" class="theme-options language-options" role="group" aria-labelledby="language-label">
-            <button type="button" data-language-choice="system" aria-pressed="false" aria-label="跟随浏览器" title="跟随浏览器" data-i18n-aria-label="settings.languageSystem" data-i18n-title="settings.languageSystem">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13.5 13.5 0 0 1 0 18 13.5 13.5 0 0 1 0-18z"/></svg>
-            </button>
-            <button type="button" data-language-choice="zh" lang="zh-CN" aria-pressed="false" aria-label="中文" title="中文">中</button>
-            <button type="button" data-language-choice="en" lang="en" aria-pressed="false" aria-label="English" title="English">EN</button>
-          </div>
+        <div class="app-settings-body">
+          <section id="theme-setting" class="app-settings-section">
+            <div class="app-settings-text">
+              <h3 id="theme-label" class="app-settings-title" data-i18n="settings.theme">外观</h3>
+              <p class="app-settings-help" data-i18n="settings.browserOnly">只影响当前浏览器。</p>
+            </div>
+            <div id="theme-options" class="theme-options" role="group" aria-labelledby="theme-label">
+              <button type="button" data-theme-choice="system" aria-pressed="false" aria-label="跟随系统" title="跟随系统" data-i18n-aria-label="settings.themeSystem" data-i18n-title="settings.themeSystem"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
+              <button type="button" data-theme-choice="light" aria-pressed="false" aria-label="浅色" title="浅色" data-i18n-aria-label="settings.themeLight" data-i18n-title="settings.themeLight"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.6"/><path d="M12 2.2v1.3M12 20.5v1.3M2.2 12h1.3M20.5 12h1.3M5.1 5.1l.9.9M18 18l.9.9M5.1 18.9l.9-.9M18 6l.9-.9"/></svg></button>
+              <button type="button" data-theme-choice="dark" aria-pressed="false" aria-label="深色" title="深色" data-i18n-aria-label="settings.themeDark" data-i18n-title="settings.themeDark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.7a10 10 0 1 0 9.5 14 8 8 0 0 1-9.5-14z"/></svg></button>
+            </div>
+          </section>
+          <section id="language-setting" class="app-settings-section">
+            <div class="app-settings-text">
+              <h3 id="language-label" class="app-settings-title" data-i18n="settings.language">语言</h3>
+              <p class="app-settings-help" data-i18n="settings.browserOnly">只影响当前浏览器。</p>
+            </div>
+            <div id="language-options" class="theme-options language-options" role="group" aria-labelledby="language-label">
+              <button type="button" data-language-choice="system" aria-pressed="false" aria-label="跟随浏览器" title="跟随浏览器" data-i18n-aria-label="settings.languageSystem" data-i18n-title="settings.languageSystem">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13.5 13.5 0 0 1 0 18 13.5 13.5 0 0 1 0-18z"/></svg>
+              </button>
+              <button type="button" data-language-choice="zh" lang="zh-CN" aria-pressed="false" aria-label="中文" title="中文">中</button>
+              <button type="button" data-language-choice="en" lang="en" aria-pressed="false" aria-label="English" title="English">EN</button>
+            </div>
+          </section>
+          <section id="timezone-setting" class="app-settings-section">
+            <div class="app-settings-text">
+              <label id="timezone-label" class="app-settings-title" for="display-timezone-select" data-i18n="settings.timezone">显示时区</label>
+              <p class="app-settings-help" data-i18n="settings.browserOnly">只影响当前浏览器。</p>
+            </div>
+            <select id="display-timezone-select" class="timezone-select">
+              <option value="device" data-i18n="settings.timezoneDevice">跟随设备</option>
+              <option value="Asia/Shanghai" data-i18n="city.shanghai">上海</option>
+              <option value="Asia/Tokyo" data-i18n="city.tokyo">东京</option>
+              <option value="Europe/London" data-i18n="city.london">伦敦</option>
+              <option value="Europe/Paris" data-i18n="city.paris">巴黎</option>
+              <option value="America/New_York" data-i18n="city.newYork">纽约</option>
+              <option value="America/Los_Angeles" data-i18n="city.losAngeles">洛杉矶</option>
+            </select>
+          </section>
         </div>
       </form>
     </dialog>

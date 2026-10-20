@@ -2,6 +2,14 @@ import { renderMarkdown, sanitizeHref } from "./markdown.js";
 import { createConfirmDialog } from "./confirm-dialog.js";
 import { createNoticeController } from "./notice.js";
 import { createSelectionBar, trashRemainingText } from "./selection-bar.js";
+import {
+  DISPLAY_TIMEZONE_KEY,
+  deviceTimeZone,
+  formatDisplayTime,
+  loadDisplayTimezonePreference,
+  resolveDisplayTimeZone,
+  saveDisplayTimezonePreference,
+} from "./display-timezone.js";
 
 /** Interface text from i18n.js, which loads in <head> before this module. */
 const t = window.grokRemoteI18n ? window.grokRemoteI18n.t : (key) => key;
@@ -88,11 +96,12 @@ const elements = {
   renameSessionInput: byId("rename-session-input"),
   renameSessionStatus: byId("rename-session-status"),
   renameSessionCancelButton: byId("rename-session-cancel-button"),
-  appearanceSettingsButton: byId("appearance-settings-button"),
-  appearanceSettingsDialog: byId("appearance-settings-dialog"),
+  appSettingsButton: byId("app-settings-button"),
+  appSettingsDialog: byId("app-settings-dialog"),
   themeOptions: byId("theme-options"),
   languageSetting: byId("language-setting"),
   languageOptions: byId("language-options"),
+  displayTimezoneSelect: byId("display-timezone-select"),
   collapseSidebarButton: byId("collapse-sidebar-button"),
   openSidebarButton: byId("open-sidebar-button"),
   sidebarBackdrop: byId("sidebar-backdrop"),
@@ -121,6 +130,8 @@ const elements = {
 };
 
 const state = {
+  /** Display time zone saved in this browser; the settings select writes it on change. */
+  displayTimezone: loadDisplayTimezonePreference(),
   reconnectEnabled: true,
   connectAttempt: 0,
   socket: null,
@@ -225,10 +236,11 @@ elements.trashSessionsButton.addEventListener("click", () => {
 elements.selectSessionsButton.addEventListener("click", () => {
   selectionBar.setManualSelection(true);
 });
-elements.appearanceSettingsButton.addEventListener("click", () => {
+elements.appSettingsButton.addEventListener("click", () => {
   renderThemeChoice();
   renderLanguageChoice();
-  elements.appearanceSettingsDialog.showModal();
+  syncDisplayTimezoneSelect();
+  elements.appSettingsDialog.showModal();
 });
 elements.themeOptions.addEventListener("click", (event) => {
   const button = event.target.closest("[data-theme-choice]");
@@ -239,6 +251,13 @@ elements.themeOptions.addEventListener("click", (event) => {
 elements.languageOptions.addEventListener("click", (event) => {
   const button = event.target.closest("[data-language-choice]");
   if (button && window.grokRemoteI18n) window.grokRemoteI18n.set(button.dataset.languageChoice);
+});
+elements.displayTimezoneSelect.addEventListener("change", selectDisplayTimezone);
+window.addEventListener("storage", (event) => {
+  if (event.key !== DISPLAY_TIMEZONE_KEY) return;
+  state.displayTimezone = loadDisplayTimezonePreference();
+  syncDisplayTimezoneSelect();
+  renderSessionList();
 });
 window.addEventListener("grok-remote-languagechange", () => {
   renderLanguageChoice();
@@ -825,9 +844,12 @@ function appendSessionText(container, session) {
     meta.textContent = trashRemainingText(session.purgeAt);
   } else {
     const date = formatDate(session.updatedAt || session.createdAt);
-    meta.textContent = session.state === "active"
-      ? (date ? t("session.runningAt", { date }) : t("session.running"))
-      : date;
+    if (session.state === "active") {
+      meta.textContent = date ? t("session.runningAt", { date }) : t("session.running");
+    } else {
+      // Grok CLI's last_active_at also moves for background events, so it is labelled as activity, not a reply.
+      meta.textContent = date ? t("session.lastActive", { date }) : "";
+    }
   }
   container.append(title, preview, meta);
 }
@@ -2315,6 +2337,22 @@ function renderLanguageChoice() {
   }
 }
 
+function syncDisplayTimezoneSelect() {
+  const prefs = state.displayTimezone;
+  elements.displayTimezoneSelect.value = prefs.followDevice ? "device" : prefs.cityTimeZone;
+}
+
+/** Like appearance and language, the time zone applies and persists on change.
+ * Choosing "follow device" keeps the last city so switching back restores it. */
+function selectDisplayTimezone() {
+  const value = elements.displayTimezoneSelect.value;
+  state.displayTimezone = saveDisplayTimezonePreference(value === "device"
+    ? { followDevice: true, cityTimeZone: state.displayTimezone.cityTimeZone }
+    : { followDevice: false, cityTimeZone: value });
+  syncDisplayTimezoneSelect();
+  renderSessionList();
+}
+
 function clearTimeline() {
   for (const stream of state.assistantStreams.values()) {
     if (stream.frame !== null) cancelAnimationFrame(stream.frame);
@@ -2660,12 +2698,10 @@ function commandStatus(status) {
 function formatDate(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "";
   const milliseconds = value < 1_000_000_000_000 ? value * 1_000 : value;
-  return new Intl.DateTimeFormat(window.grokRemoteI18n?.language() === "zh" ? "zh-CN" : "en", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(milliseconds));
+  return formatDisplayTime(
+    milliseconds,
+    resolveDisplayTimeZone(state.displayTimezone, deviceTimeZone()),
+  );
 }
 
 /** Status line for the login card; regular notices, progress, and errors each use their own color. */

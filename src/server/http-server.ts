@@ -58,6 +58,7 @@ const STATIC_FILES: Record<string, { file: string; contentType: string }> = {
   "/theme.js": { file: "theme.js", contentType: "text/javascript; charset=utf-8" },
   "/strings.js": { file: "strings.js", contentType: "text/javascript; charset=utf-8" },
   "/i18n.js": { file: "i18n.js", contentType: "text/javascript; charset=utf-8" },
+  "/display-timezone.js": { file: "display-timezone.js", contentType: "text/javascript; charset=utf-8" },
   "/confirm-dialog.js": { file: "confirm-dialog.js", contentType: "text/javascript; charset=utf-8" },
   "/markdown.js": { file: "markdown.js", contentType: "text/javascript; charset=utf-8" },
   "/notice.js": { file: "notice.js", contentType: "text/javascript; charset=utf-8" },
