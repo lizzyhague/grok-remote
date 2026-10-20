@@ -60,10 +60,10 @@ test("storage changes synchronize tabs and blocked storage still allows switchin
 
 test("the PWA header color follows the applied theme", () => {
   const page = run({ systemLight: true });
-  assert.equal(page.header.content, "#f8f4ea");
+  assert.equal(page.header.content, "#fbf9f4");
   page.media.matches = false;
   page.mediaListeners[0]();
   assert.equal(page.header.content, "#161413");
   page.window.grokRemoteTheme.set("light");
-  assert.equal(page.header.content, "#f8f4ea");
+  assert.equal(page.header.content, "#fbf9f4");
 });
