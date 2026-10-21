@@ -10,7 +10,7 @@ function run({ stored = null, systemLight = false, storageThrows = false } = {})
   const mediaListeners = [];
   const windowListeners = new Map();
   const writes = [];
-  const header = { content: "#161413", setAttribute(name, value) { if (name === "content") this.content = value; } };
+  const header = { content: "#0f0f10", setAttribute(name, value) { if (name === "content") this.content = value; } };
   const media = { matches: systemLight, addEventListener(name, listener) { if (name === "change") mediaListeners.push(listener); } };
   const localStorage = {
     getItem() { if (storageThrows) throw new Error("blocked"); return stored; },
@@ -63,7 +63,7 @@ test("the PWA header color follows the applied theme", () => {
   assert.equal(page.header.content, "#fbf9f4");
   page.media.matches = false;
   page.mediaListeners[0]();
-  assert.equal(page.header.content, "#161413");
+  assert.equal(page.header.content, "#0f0f10");
   page.window.grokRemoteTheme.set("light");
   assert.equal(page.header.content, "#fbf9f4");
 });

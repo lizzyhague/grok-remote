@@ -21,7 +21,7 @@ test("light colors match lanting's Grok member palette", () => {
   const lightEnd = styles.indexOf("\n}", lightStart);
   const light = styles.slice(lightStart, lightEnd);
   assert.match(light, /--neutral:\s*#fbf9f4;/u);
-  assert.match(light, /--ink:\s*#1c1c1e;/u);
-  assert.match(light, /--theme:\s*color-mix\(in srgb, color-mix\(in srgb, var\(--neutral\) var\(--mix-text\), var\(--ink\)\) 20%, #f3c56b\);/u);
-  assert.match(light, /--mix-bubble-ai:\s*15%;/u);
+  assert.match(light, /--ink:\s*#000000;/u);
+  assert.match(light, /--theme:\s*color-mix\(in srgb, color-mix\(in srgb, var\(--neutral\) var\(--mix-text\), var\(--ink\)\) 15%, #f3c56b\);/u);
+  assert.match(light, /--mix-bubble-ai:\s*8%;/u);
 });
