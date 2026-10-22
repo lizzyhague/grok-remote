@@ -567,8 +567,10 @@ button.icon-button svg {
   width: 100%;
 }
 
-.session-open:hover:not(:disabled),
-.session-select-label:hover {
+.session-item:hover:not([data-current="true"]):has(
+  .session-open:not(:disabled),
+  .session-select-label input:not(:disabled)
+) {
   background: var(--hover);
 }
 
@@ -1651,7 +1653,7 @@ button:focus-visible {
 .slash-menu {
   position: absolute;
   z-index: 20;
-  left: 1rem;
+  left: calc(1rem + var(--scrollbar-width, 0px));
   right: calc(1rem + var(--scrollbar-width, 0px));
   bottom: calc(100% - 0.35rem);
   max-height: min(52dvh, 430px);
@@ -1718,6 +1720,15 @@ button:focus-visible {
 
 .slash-item[aria-selected="true"] {
   background: var(--theme-wash);
+}
+
+.slash-item:hover:not(:disabled) {
+  border-color: var(--divider);
+}
+
+.slash-item:hover:not(:disabled):not([aria-selected="true"]) {
+  border-radius: 0;
+  background: var(--surface-2);
 }
 
 .slash-item[data-danger="true"] strong {
