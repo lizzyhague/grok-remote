@@ -45,6 +45,7 @@ test("the settings button matches the other projects' application settings gear"
 
 test("application settings lists appearance, language, then time zone in the same row format", () => {
   assert.match(dialog, /<h2 id="app-settings-title"[^>]*>应用设置<\/h2>/u);
+  assert.match(dialog, /class="quiet small icon-button"[^>]*data-i18n-title="common\.close"[^>]*><svg[\s\S]*?<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"\/>/u);
   const order = ["theme-setting", "language-setting", "timezone-setting"].map((id) => dialog.indexOf(`<section id="${id}" class="app-settings-section">`));
   assert.ok(order.every((index) => index >= 0));
   assert.ok(order[0] < order[1] && order[1] < order[2]);
